@@ -1,0 +1,5 @@
+{
+  "place": "none",
+  "title": "Tmux prefix",
+  "overlay": { "kind": "popup", "at": "bottom", "offset": 0, "width": 520, "height": 420 }
+}

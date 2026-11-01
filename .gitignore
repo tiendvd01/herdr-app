@@ -16,3 +16,19 @@ window.json
 *.error
 *.old-*
 *.reset-*
+
+# Local editor, OS, and tool artifacts
+.DS_Store
+*.swp
+*.swo
+*~
+*.log
+*.tmp
+*.temp
+.cache/
+node_modules/
+
+# Local secrets
+.env
+.env.*
+!.env.example
