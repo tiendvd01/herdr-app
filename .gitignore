@@ -1,0 +1,18 @@
+# Herdr runtime state and generated caches
+herdr-app.sock
+data/
+frame/
+telemetry/
+update-notes-media/
+layouts/.state/
+installed.json
+seen.json
+shared.json
+update-notes.json
+view.json
+window.json
+
+# Herdr-generated diagnostics and backups
+*.error
+*.old-*
+*.reset-*
