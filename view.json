@@ -1,0 +1,61 @@
+{
+  "active": "sp11dccd2dd86e6dcb8225b29c9220aae4",
+  "spaces": {
+    "sp11dccd2dd86e6dcb8225b29c9220aae4": "tb38a2c715a13968ae1fdc69047bfd45e0",
+    "sp672ce9a7f79f892df6f0a31d53eb1353": "tb77bcb460f0896f502ce02f2526d1f911",
+    "sp98939de590c23ebdfeb35e258072ebce": "tb0c6c706946dc089348cf9fc81c821fb2"
+  },
+  "tabs": {
+    "tb0c6c706946dc089348cf9fc81c821fb2": {
+      "focused": "p7ab5556962eede120e14e49138b80292",
+      "before": [],
+      "zoomed": null,
+      "settled": null
+    },
+    "tb269d25002a3b1f74045f76e2b18e202b": {
+      "focused": "pb0940d55dd989a25284171386fa2cbef",
+      "before": [],
+      "zoomed": null,
+      "settled": null
+    },
+    "tb38a2c715a13968ae1fdc69047bfd45e0": {
+      "focused": "p1a8bb2a4065a9049e66cfa047de812f9",
+      "before": [],
+      "zoomed": null,
+      "settled": null
+    },
+    "tb77bcb460f0896f502ce02f2526d1f911": {
+      "focused": "p2f095ac5e858fb88429e772e7d96500f",
+      "before": [],
+      "zoomed": null,
+      "settled": null
+    }
+  },
+  "recent": [],
+  "attention": {
+    "t19": {
+      "word": null,
+      "seen": true
+    },
+    "t1d": {
+      "word": null,
+      "seen": true
+    },
+    "t1f": {
+      "word": null,
+      "seen": true
+    },
+    "t1g": {
+      "word": null,
+      "seen": true
+    },
+    "t1h": {
+      "word": "idle",
+      "seen": true
+    },
+    "t9": {
+      "word": null,
+      "seen": true
+    }
+  }
+}
