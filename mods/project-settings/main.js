@@ -1,5 +1,5 @@
 // Project Settings page (content area): per git project, the worktree setup
-// script <repo>/.herdr/post-create.sh, run in every new worktree of the repo
+// script ~/.config/herdr-app/projects/<repo>/post-create.sh, run in every new worktree of the repo
 // (the watcher lives in status-usage/postscripts.js).
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, EditorState, Editor } from "gpui-base";
@@ -12,12 +12,15 @@ const TEMPLATE = `#!/bin/sh
 # npm install
 `;
 
+const slug = (main) => main.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "");
+const scriptFile = (home, main) => `${home}/.config/herdr-app/projects/${slug(main)}/post-create.sh`;
+
 async function repoOf(folder) {
   const r = await exec("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: folder });
   if (r.code !== 0) return null;
   const common = r.stdout.trim();
   const main = common.endsWith("/.git") ? common.slice(0, -5) : common;
-  return { main, name: main.split("/").pop(), file: `${main}/.herdr/post-create.sh` };
+  return { main, name: main.split("/").pop(), file: scriptFile(home(), main), legacy: `${main}/.herdr/post-create.sh` };
 }
 
 export default class ProjectSettings extends View {
@@ -58,7 +61,8 @@ export default class ProjectSettings extends View {
   async pick(r) {
     this.sel = r;
     this.saved = await readTextFile(r.file).catch(() => null);
-    this.editor.set_value(this.saved ?? TEMPLATE);
+    const old = this.saved == null ? await readTextFile(r.legacy).catch(() => null) : null;
+    this.editor.set_value(this.saved ?? old ?? TEMPLATE);
     this.msg = "";
   }
 
@@ -67,7 +71,7 @@ export default class ProjectSettings extends View {
     if (!r) return;
     cx.spawn(async (cx) => {
       try {
-        await exec("mkdir", ["-p", `${r.main}/.herdr`]);
+        await exec("mkdir", ["-p", r.file.slice(0, r.file.lastIndexOf("/"))]);
         await writeTextFile(r.file, this.editor.value(), this.saved);
         this.saved = this.editor.value();
         this.msg = "Saved";

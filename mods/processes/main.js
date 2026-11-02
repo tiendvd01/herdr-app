@@ -45,7 +45,7 @@ export default class Processes extends View {
   }
 
   btn(t, id, label, onClick, danger) {
-    return div().id(id).px(8).py(3).rounded(5).border(1).border_color(t.border).text_size(11)
+    return div().id(id).px(8).py(3).rounded(5).border(1).border_color(t.border).text_size(12)
       .text_color(danger ? t.blocked : t.foreground).cursor_pointer()
       .hover((s) => s.bg(t.raised))
       .on_mouse_down("left", stopDrag).on_click(onClick).child(label);
@@ -55,7 +55,7 @@ export default class Processes extends View {
     return div().id(id).px(7).py(3).rounded(5).border(1).border_color(t.border).cursor_pointer()
       .text_color(danger ? t.blocked : dim ? t.dim : t.foreground).hover((x) => x.bg(t.raised))
       .on_mouse_down("left", stopDrag).on_click(onClick)
-      .child(svg(`mods/processes/${icon}.svg`).size(13).when(spin, (el) => el.spin(900)));
+      .child(svg(`mods/processes/${icon}.svg`).size(15).when(spin, (el) => el.spin(900)));
   }
 
   goto(se) {
@@ -82,8 +82,8 @@ export default class Processes extends View {
     return h_flex().gap(8).items_center().px(10).py(6).rounded(6).bg(t.raised)
       .child(div().size(6).rounded(3).bg(it.paused ? t.working : dim ? t.dim : t.done))
       .child(v_flex().flex_1().min_w(0).gap(1)
-        .child(div().truncate().text_size(12).text_color(dim ? t.muted : t.foreground).child(it.cmd))
-        .child(div().text_size(10.5).text_color(t.dim)
+        .child(div().truncate().text_size(14).text_color(dim ? t.muted : t.foreground).child(it.cmd))
+        .child(div().text_size(12).text_color(t.dim)
           .child(`${it.paused ? "paused · " : ""}${age(it.age)} · CPU ${it.cpu.toFixed(1)}% · ${mem(it.rss)}${it.n > 1 ? ` · ${it.n} procs` : ""}`)))
       .child(this.btn(t, `pz-${se.address}-${it.pid}`, it.paused ? "Resume" : "Pause", () => this.signal(it.paused ? "-CONT" : "-STOP", it)));
   }
@@ -100,17 +100,17 @@ export default class Processes extends View {
         .child(div().id(`fold-${se.address}`).p(2).rounded(4).cursor_pointer().hover((x) => x.bg(t.raised))
           .on_mouse_down("left", stopDrag)
           .on_click((_e, cx) => { open ? this.expanded.delete(se.address) : this.expanded.add(se.address); cx.notify(); })
-          .child(svg(`mods/workspace-chrome/${open ? "chevron-down" : "chevron-right"}.svg`).size(13)))
+          .child(svg(`mods/workspace-chrome/${open ? "chevron-down" : "chevron-right"}.svg`).size(15)))
         .child(div().size(8).rounded(4).bg(col))
         .child(v_flex().flex_1().min_w(0)
-          .child(div().truncate().font_semibold().text_size(13).text_color(t.foreground).child(se.title))
-          .child(div().truncate().text_size(10.5).text_color(t.dim).child(se.where)))
-        .child(div().text_size(11).text_color(t.muted).child(`${se.age != null ? `${age(se.age)} · ` : ""}${tasks.length} proc · ${cpu.toFixed(0)}% · ${mem(rss)}`))
+          .child(div().truncate().font_semibold().text_size(14).text_color(t.foreground).child(se.title))
+          .child(div().truncate().text_size(12).text_color(t.dim).child(se.where)))
+        .child(div().text_size(12).text_color(t.muted).child(`${se.age != null ? `${age(se.age)} · ` : ""}${tasks.length} proc · ${cpu.toFixed(0)}% · ${mem(rss)}`))
         .child(this.iconBtn(t, `rs-${se.address}`, "rotate-cw", (_e, cx) => this.restart(se, cx),
           { dim: this.restarting.has(se.address), spin: this.restarting.has(se.address) }))
         .child(this.iconBtn(t, `go-${se.address}`, "arrow-up-right", () => this.goto(se)))
         .when(tasks.length > 0, (el) => el.child(this.iconBtn(t, `stop-${se.address}`, "square", () => this.stopAll(se), { danger: true }))))
-      .when(open && items.length === 0, (el) => el.child(div().px(10).text_size(11).text_color(t.dim).child("No running processes")))
+      .when(open && items.length === 0, (el) => el.child(div().px(10).text_size(12).text_color(t.dim).child("No running processes")))
       .children(items.map((it) => this.row(t, se, it)));
   }
 
@@ -136,7 +136,7 @@ export default class Processes extends View {
           }))
           .child(this.btn(t, "svc", this.showServices ? "Hide services" : "Show services", (_e, cx) => { this.showServices = !this.showServices; cx.notify(); }))
           .child(this.btn(t, "close", "Close", () => closeOverlay(props().overlay))))
-        .child(div().text_size(11.5).text_color(t.muted)
+        .child(div().text_size(12).text_color(t.muted)
           .child(`${sessions.length} sessions · ${tasks.length} processes · CPU ${cpu.toFixed(0)}% · RAM ${mem(rss)}`)))
       .child(v_flex().id("proc-list").flex_1().overflow_y_scrollbar().gap(10).p(12)
         .when(!d, (el) => el.child(div().text_color(t.muted).child("Loading…")))
