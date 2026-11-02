@@ -57,7 +57,8 @@
     "ctrl-7": "space.select:7",
     "ctrl-8": "space.select:8",
     "ctrl-9": "space.select:9",
-    "ctrl-b": "mod.open:tmux-prefix"
+    "ctrl-b": "mod.open:tmux-prefix",
+    "cmd-g": "mod.open:open-vscode"
   },
   "terminal": {
     "cmd-c": "terminal.copy",

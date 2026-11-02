@@ -19,7 +19,7 @@ export default class Processes extends View {
     this.restarting = new Set();
   }
 
-  // /exit, wait until Claude is gone, then resume the same conversation in that terminal.
+  // /exit, wait until Claude is gone, resume the same conversation in that terminal, then /compact it.
   restart(se, cx) {
     if (this.restarting.has(se.address)) return;
     this.restarting.add(se.address);
@@ -36,6 +36,16 @@ export default class Processes extends View {
         id = all.length ? all[all.length - 1][1] : null;
         if (await alive()) throw new Error("session did not exit");
         await hc(["send", "--force", se.address, id ? `claude --resume ${id}` : "claude --continue"]);
+        // Wait for the resumed Claude's input prompt (up to ~30s), then compact.
+        await sleep(3);
+        let ready = false;
+        for (let i = 0; i < 54 && !ready; i++) {
+          const t = (await hc(["read", se.address, "--lines", "15"])).stdout;
+          ready = /\? for shortcuts|shift\+tab to cycle|bypass permissions|accept edits/.test(t) && /❯|>\s/.test(t);
+          if (!ready) await sleep(0.5);
+        }
+        if (!ready) throw new Error("resumed, but Claude was not ready: /compact not sent");
+        await hc(["send", "--force", se.address, "/compact"]);
       } catch (e) {
         notify({ title: "Restart session failed", body: String(e?.message ?? e), level: "error" });
       }
@@ -82,7 +92,7 @@ export default class Processes extends View {
     return h_flex().gap(8).items_center().px(10).py(6).rounded(6).bg(t.raised)
       .child(div().size(6).rounded(3).bg(it.paused ? t.working : dim ? t.dim : t.done))
       .child(v_flex().flex_1().min_w(0).gap(1)
-        .child(div().truncate().text_size(14).text_color(dim ? t.muted : t.foreground).child(it.cmd))
+        .child(div().min_w(0).text_size(11).text_color(dim ? t.muted : t.foreground).child(it.cmd))
         .child(div().text_size(12).text_color(t.dim)
           .child(`${it.paused ? "paused · " : ""}${age(it.age)} · CPU ${it.cpu.toFixed(1)}% · ${mem(it.rss)}${it.n > 1 ? ` · ${it.n} procs` : ""}`)))
       .child(this.btn(t, `pz-${se.address}-${it.pid}`, it.paused ? "Resume" : "Pause", () => this.signal(it.paused ? "-CONT" : "-STOP", it)));

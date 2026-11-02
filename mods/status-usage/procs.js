@@ -18,7 +18,7 @@ export function pretty(cmd) {
     c = cmd.slice(i + 6, j > i ? j : undefined).replace(/'"'"'/g, "'");
   }
   c = c.replace(/\/Users\/[^/\s]+/g, "~").replace(/\s+/g, " ").trim();
-  return c.length > 90 ? c.slice(0, 89) + "…" : c;
+  return c;
 }
 
 export async function collect(exec) {
