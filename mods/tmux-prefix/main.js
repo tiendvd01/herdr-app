@@ -13,6 +13,7 @@ const BINDINGS = [
   ["n", "Next tab", "tab.next"],
   ["P", "Previous tab", "tab.prev"],
   ["p", "Process manager", "overlay.processes"],
+  ["s", "Post-create script", "overlay.scripts"],
   ["h", "Focus left", "pane.go", { direction: "left" }, true],
   ["j", "Focus down", "pane.go", { direction: "down" }, true],
   ["k", "Focus up", "pane.go", { direction: "up" }, true],
@@ -96,6 +97,7 @@ export default class TmuxPrefix extends View {
     const [, , command, args = {}, repeatable = false] = binding;
     if (!repeatable) this.dismiss();
     if (command === "overlay.processes") openOverlay({ mod: "processes", kind: "window", key: "processes", width: 720, height: 560 });
+    else if (command === "overlay.scripts") openOverlay({ mod: "project-scripts", kind: "dialog", width: 760, height: 520 });
     else run(command, args);
     if (repeatable) {
       this.repeat = true;

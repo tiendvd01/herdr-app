@@ -2,6 +2,7 @@ import { View, div, svg, image } from "gpui-kit";
 import { h_flex, v_flex, HoverCard } from "gpui-base";
 import { spaces, agents, theme, run, window, keys, exec, setShared, notify, openOverlay, shared } from "herdr";
 import { collect } from "./procs.js";
+import { checkPostScripts } from "./postscripts.js";
 
 const ICONS = { claude: "claude", copilot: "copilot", codex: "codex", agy: "antigravity", gemini: "gemini" };
 
@@ -35,6 +36,7 @@ export default class WorkspaceStatus extends View {
     this.prev = new Map();
     cx.timer.every(4000, (cx) => this.pollProcs(cx));
     this.pollProcs(cx);
+    cx.timer.every(3000, (cx) => { if (!this.psbusy) { this.psbusy = true; cx.spawn(async () => { try { await checkPostScripts(exec); } catch (e) { console.log("post-script", String(e)); } this.psbusy = false; }); } });
   }
 
   pollProcs(cx) {

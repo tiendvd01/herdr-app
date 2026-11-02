@@ -1,6 +1,6 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { theme, shared, setShared, run, exec, closeOverlay, props } from "herdr";
+import { theme, shared, setShared, run, exec, hc, notify, closeOverlay, props } from "herdr";
 
 const age = (s) => {
   if (s >= 3600) return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
@@ -16,6 +16,32 @@ export default class Processes extends View {
     this.fh.focus();
     this.showServices = false;
     this.expanded = new Set();
+    this.restarting = new Set();
+  }
+
+  // /exit, wait until Claude is gone, then resume the same conversation in that terminal.
+  restart(se, cx) {
+    if (this.restarting.has(se.address)) return;
+    this.restarting.add(se.address);
+    cx.notify();
+    cx.spawn(async (cx) => {
+      const sleep = (s) => exec("sleep", [String(s)]);
+      const alive = async () => (await exec("ps", ["-p", String(se.root), "-o", "pid="])).stdout.trim() !== "";
+      try {
+        await hc(["send", "--force", se.address, "/exit"]);
+        let id = null;
+        for (let i = 0; i < 40 && (await alive()); i++) await sleep(0.5);
+        const r = await hc(["read", se.address, "--lines", "40"]);
+        const all = [...r.stdout.matchAll(/claude --resume ([0-9a-f]{8}-[0-9a-f-]{27})/g)];
+        id = all.length ? all[all.length - 1][1] : null;
+        if (await alive()) throw new Error("session did not exit");
+        await hc(["send", "--force", se.address, id ? `claude --resume ${id}` : "claude --continue"]);
+      } catch (e) {
+        notify({ title: "Restart session failed", body: String(e?.message ?? e), level: "error" });
+      }
+      this.restarting.delete(se.address);
+      cx.notify();
+    });
   }
 
   btn(t, id, label, onClick, danger) {
@@ -23,6 +49,13 @@ export default class Processes extends View {
       .text_color(danger ? t.blocked : t.foreground).cursor_pointer()
       .hover((s) => s.bg(t.raised))
       .on_mouse_down("left", stopDrag).on_click(onClick).child(label);
+  }
+
+  iconBtn(t, id, icon, onClick, { danger, dim, spin } = {}) {
+    return div().id(id).px(7).py(3).rounded(5).border(1).border_color(t.border).cursor_pointer()
+      .text_color(danger ? t.blocked : dim ? t.dim : t.foreground).hover((x) => x.bg(t.raised))
+      .on_mouse_down("left", stopDrag).on_click(onClick)
+      .child(svg(`mods/processes/${icon}.svg`).size(13).when(spin, (el) => el.spin(900)));
   }
 
   goto(se) {
@@ -72,9 +105,11 @@ export default class Processes extends View {
         .child(v_flex().flex_1().min_w(0)
           .child(div().truncate().font_semibold().text_size(13).text_color(t.foreground).child(se.title))
           .child(div().truncate().text_size(10.5).text_color(t.dim).child(se.where)))
-        .child(div().text_size(11).text_color(t.muted).child(`${tasks.length} proc · ${cpu.toFixed(0)}% · ${mem(rss)}`))
-        .child(this.btn(t, `go-${se.address}`, "Go to", () => this.goto(se)))
-        .when(tasks.length > 0, (el) => el.child(this.btn(t, `stop-${se.address}`, "Stop all", () => this.stopAll(se), true))))
+        .child(div().text_size(11).text_color(t.muted).child(`${se.age != null ? `${age(se.age)} · ` : ""}${tasks.length} proc · ${cpu.toFixed(0)}% · ${mem(rss)}`))
+        .child(this.iconBtn(t, `rs-${se.address}`, "rotate-cw", (_e, cx) => this.restart(se, cx),
+          { dim: this.restarting.has(se.address), spin: this.restarting.has(se.address) }))
+        .child(this.iconBtn(t, `go-${se.address}`, "arrow-up-right", () => this.goto(se)))
+        .when(tasks.length > 0, (el) => el.child(this.iconBtn(t, `stop-${se.address}`, "square", () => this.stopAll(se), { danger: true }))))
       .when(open && items.length === 0, (el) => el.child(div().px(10).text_size(11).text_color(t.dim).child("No running processes")))
       .children(items.map((it) => this.row(t, se, it)));
   }
@@ -93,7 +128,7 @@ export default class Processes extends View {
       .on_key_down((e) => { if (e.key === "escape") closeOverlay(props().overlay); })
       .child(v_flex().px(14).py(10).gap(6).border_b(1).border_color(t.border)
         .child(h_flex().gap(8).items_center()
-          .child(div().flex_1().font_semibold().text_size(14).child("Processes"))
+          .child(div().flex_1().font_semibold().text_size(14).child("Sessions"))
           .child(this.btn(t, "fold-all", sessions.some((x) => this.expanded.has(x.address)) ? "Collapse all" : "Expand all", (_e, cx) => {
             if (sessions.some((x) => this.expanded.has(x.address))) this.expanded.clear();
             else sessions.forEach((x) => this.expanded.add(x.address));

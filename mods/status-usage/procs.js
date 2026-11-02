@@ -56,7 +56,7 @@ export async function collect(exec) {
     sessions.push({
       address: a.address, pane: a.pane, space: a.space, tab: a.tab, title: a.title || "Claude",
       where: `${a.space_name} › ${a.tab_name}`, status: a.status, root,
-      rootCpu: procs.get(root).cpu, rootRss: procs.get(root).rss, items,
+      age: procs.get(root).age, rootCpu: procs.get(root).cpu, rootRss: procs.get(root).rss, items,
     });
   }
   return { at: Date.now(), sessions };
