@@ -1,6 +1,7 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, v_flex, HoverCard } from "gpui-base";
-import { spaces, agents, theme, run, window, keys, exec } from "herdr";
+import { spaces, agents, theme, run, window, keys, exec, setShared, notify, openOverlay, shared } from "herdr";
+import { collect } from "./procs.js";
 
 const ICONS = { claude: "claude", copilot: "copilot", codex: "codex", agy: "antigravity", gemini: "gemini" };
 
@@ -31,6 +32,33 @@ export default class WorkspaceStatus extends View {
     this.last = 0;
     cx.timer.every(120000, (cx) => this.refresh(cx, true));
     this.refresh(cx, true);
+    this.prev = new Map();
+    cx.timer.every(4000, (cx) => this.pollProcs(cx));
+    this.pollProcs(cx);
+  }
+
+  pollProcs(cx) {
+    if (this.pbusy) return;
+    this.pbusy = true;
+    cx.spawn(async (cx) => {
+      try {
+        const d = await collect(exec);
+        const now = new Map();
+        for (const se of d.sessions) for (const it of se.items) if (!it.service) now.set(it.pid, { it, se });
+        // A task that ran for a while and is gone: tell the user it finished.
+        const killed = shared("procs.killed") ?? [];
+        for (const [pid, { it, se }] of this.prev) {
+          if (!now.has(pid) && it.age >= 20 && !killed.includes(pid))
+            notify({ title: "Process finished", body: `${it.cmd}\n${se.title} · ${se.where}`, level: "success",
+              action: { name: "pane.focus", args: { pane: se.pane } } });
+        }
+        this.prev = now;
+        setShared("procs", d);
+      } catch (e) {
+        console.log("procs failed", String(e?.message ?? e));
+      }
+      this.pbusy = false;
+    });
   }
 
   // Data comes from quota-axi; hovering the bar asks it again (at most every 5s).
@@ -78,6 +106,18 @@ export default class WorkspaceStatus extends View {
           .when(Boolean(w.reset), el => el.child(div().text_size(11).text_color(t.dim).child(short(w.reset) ? `resets in ${short(w.reset)}` : "reset pending")))))));
   }
 
+  procBadge(t) {
+    const d = shared("procs");
+    const tasks = (d?.sessions ?? []).flatMap(se => se.items).filter(i => !i.service);
+    const cpu = tasks.reduce((a, i) => a + i.cpu, 0);
+    const mb = tasks.reduce((a, i) => a + i.rss, 0) / 1048576;
+    return h_flex().id("procs-badge").gap(6).items_center().cursor_pointer()
+      .hover((s) => s.text_color(t.foreground))
+      .on_click(() => openOverlay({ mod: "processes", kind: "window", key: "processes", width: 720, height: 560 }))
+      .child(svg("mods/workspace-chrome/layers.svg").size(13))
+      .child(`${tasks.length} proc · ${cpu.toFixed(0)}% · ${mb >= 1024 ? (mb / 1024).toFixed(1) + "G" : mb.toFixed(0) + "M"}`);
+  }
+
   render() {
     const t = theme();
     const provs = this.providers();
@@ -99,6 +139,7 @@ export default class WorkspaceStatus extends View {
       .when(Boolean(space?.branch), el => el.child(label("branch", space.branch)))
       .child(h_flex().gap(6).items_center().child(div().size(6).rounded(3).bg(t.dim)).child(`${list.length} agents`)
         .when(needs > 0, el => el.child(div().text_color(t.blocked).child(`· ${needs} needs you`))))
+      .child(this.procBadge(t))
       .child(usage)
       .child(div().flex_1())
       .child(div().id("palette").text_color(t.dim).on_click(() => run("app.palette")).child(this.hint(t)));

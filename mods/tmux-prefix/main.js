@@ -1,6 +1,6 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { closeOverlay, focused, hc, nextCommand, props, run, theme } from "herdr";
+import { closeOverlay, focused, hc, nextCommand, openOverlay, props, run, theme } from "herdr";
 
 // Edit these two things to make the example yours. Only repeatable actions
 // start a timer: the first key after Ctrl+B can take as long as you like.
@@ -11,7 +11,8 @@ const BINDINGS = [
   ['"', "Split down", "pane.split", { direction: "down" }],
   ["x", "Close pane", "pane.close"],
   ["n", "Next tab", "tab.next"],
-  ["p", "Previous tab", "tab.prev"],
+  ["P", "Previous tab", "tab.prev"],
+  ["p", "Process manager", "overlay.processes"],
   ["h", "Focus left", "pane.go", { direction: "left" }, true],
   ["j", "Focus down", "pane.go", { direction: "down" }, true],
   ["k", "Focus up", "pane.go", { direction: "up" }, true],
@@ -94,7 +95,8 @@ export default class TmuxPrefix extends View {
     }
     const [, , command, args = {}, repeatable = false] = binding;
     if (!repeatable) this.dismiss();
-    run(command, args);
+    if (command === "overlay.processes") openOverlay({ mod: "processes", kind: "window", key: "processes", width: 720, height: 560 });
+    else run(command, args);
     if (repeatable) {
       this.repeat = true;
       const generation = ++this.generation;
