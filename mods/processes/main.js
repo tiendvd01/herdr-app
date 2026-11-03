@@ -110,6 +110,7 @@ hc send --force "$addr" /compact
     const tasks = se.items;
     const cpu = se.items.reduce((a, i) => a + i.cpu, 0);
     const rss = se.items.reduce((a, i) => a + i.rss, 0);
+    const busy = cpu + (se.rootCpu ?? 0) >= 1;
     const col = se.status === "blocked" ? t.blocked : se.status === "working" ? t.working : se.status === "done" ? t.done : t.idle;
     return v_flex().gap(6).p(10).rounded(8).border(1).border_color(t.border).bg(t.surface)
       .child(h_flex().gap(8).items_center()
@@ -119,7 +120,11 @@ hc send --force "$addr" /compact
           .child(svg(`mods/workspace-chrome/${open ? "chevron-down" : "chevron-right"}.svg`).size(15)))
         .child(div().size(8).rounded(4).bg(col))
         .child(v_flex().flex_1().min_w(0)
-          .child(div().truncate().font_semibold().text_size(14).text_color(t.foreground).child(se.title))
+          .child(h_flex().gap(6).items_center()
+            .child(div().truncate().font_semibold().text_size(14).text_color(t.foreground).child(se.title))
+            .when(busy, (el) => el.child(h_flex().gap(4).items_center().px(6).py(1).rounded(8).bg(t.raised)
+              .child(svg("mods/workspace-chrome/spinner.svg").size(11).text_color(t.working).spin(900))
+              .child(div().text_size(11).text_color(t.working).child("Running")))))
           .child(div().truncate().text_size(12).text_color(t.dim).child(se.where)))
         .child(div().text_size(12).text_color(t.muted).child(`${se.age != null ? `${age(se.age)} · ` : ""}${tasks.length} proc · ${cpu.toFixed(0)}% · ${mem(rss)}`))
         .child(this.iconBtn(t, `rs-${se.address}`, "rotate-cw", (_e, cx) => this.restart(se, cx),
