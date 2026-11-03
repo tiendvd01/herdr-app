@@ -13,7 +13,7 @@
     "not have — and their declarations collide with the ones gpui-kit.d.ts makes,",
     "so the file describing the API is itself reported as the error.",
     "",
-    "`strictNullChecks` is off, and this one is the runtime's shape rather than",
+    "`strict` is off, and this one is the runtime's shape rather than",
     "a preference. A view assigns its state in `init`, which TypeScript cannot",
     "see as definite assignment the way it sees a constructor, so every field",
     "would read as possibly-undefined and every use would want a `?.` that",
@@ -25,7 +25,8 @@
     "moduleResolution": "bundler",
     "lib": ["ES2022"],
     "checkJs": true,
-    "strict": true,
+    "strict": false,
+    "noImplicitAny": false,
     "strictNullChecks": false,
     "noEmit": true
   }

@@ -110,7 +110,7 @@ hc send --force "$addr" /compact
     const tasks = se.items;
     const cpu = se.items.reduce((a, i) => a + i.cpu, 0);
     const rss = se.items.reduce((a, i) => a + i.rss, 0);
-    const busy = cpu + (se.rootCpu ?? 0) >= 1;
+    const busy = (se.busyCpu ?? 0) >= 3;
     const col = se.status === "blocked" ? t.blocked : se.status === "working" ? t.working : se.status === "done" ? t.done : t.idle;
     return v_flex().gap(6).p(10).rounded(8).border(1).border_color(t.border).bg(t.surface)
       .child(h_flex().gap(8).items_center()
