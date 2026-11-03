@@ -80,6 +80,11 @@ export default class Processes extends View {
     exec("kill", [sig, ...it.pids.map(String)]);
   }
 
+  // Delete the session: kill its terminal (closes the pane).
+  remove(se) {
+    run("terminal.kill", { terminal: se.address });
+  }
+
   stopAll(se) {
     const tasks = se.items.filter((i) => !i.service);
     if (!tasks.length) return;
@@ -119,7 +124,8 @@ export default class Processes extends View {
         .child(this.iconBtn(t, `rs-${se.address}`, "rotate-cw", (_e, cx) => this.restart(se, cx),
           { dim: this.restarting.has(se.address), spin: this.restarting.has(se.address) }))
         .child(this.iconBtn(t, `go-${se.address}`, "arrow-up-right", () => this.goto(se)))
-        .when(tasks.length > 0, (el) => el.child(this.iconBtn(t, `stop-${se.address}`, "square", () => this.stopAll(se), { danger: true }))))
+        .when(tasks.length > 0, (el) => el.child(this.iconBtn(t, `stop-${se.address}`, "square", () => this.stopAll(se), { danger: true })))
+        .child(this.iconBtn(t, `del-${se.address}`, "trash", () => this.remove(se), { danger: true })))
       .when(open && items.length === 0, (el) => el.child(div().px(10).text_size(12).text_color(t.dim).child("No running processes")))
       .children(items.map((it) => this.row(t, se, it)));
   }
