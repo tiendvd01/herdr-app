@@ -52,6 +52,14 @@ async function loadPorts(r) {
       else if (line[0] === "n") cwd.set(pid, line.slice(1));
     }
   }
+  const args = new Map();
+  if (pids.length) {
+    const a = await exec("ps", ["-o", "pid=,args=", "-p", pids.join(",")]);
+    for (const line of a.stdout.split("\n")) {
+      const m = line.trim().match(/^(\d+)\s+(.*)$/);
+      if (m) args.set(+m[1], m[2].replace(/\/Users\/[^/\s]+/g, "~"));
+    }
+  }
   const seen = new Set();
   for (const x of ls) {
     const dir = cwd.get(x.pid);
@@ -60,7 +68,7 @@ async function loadPorts(r) {
     const t = trees.filter((w) => dir === w.path || dir.startsWith(w.path + "/")).sort((a, b) => b.path.length - a.path.length)[0];
     if (!t) continue;
     seen.add(key);
-    t.items.push(x);
+    t.items.push({ ...x, args: args.get(x.pid) ?? x.cmd, dir, rel: dir === t.path ? "./" : dir.slice(t.path.length + 1) });
   }
   for (const t of trees) t.items.sort((a, b) => a.port - b.port);
   return trees.sort((a, b) => Number(b.main) - Number(a.main) || a.branch.localeCompare(b.branch));
@@ -82,10 +90,11 @@ export default class ProjectSettings extends View {
     cx.timer.every(3000, (cx) => this.refreshPorts(cx));
   }
 
-  refreshPorts(cx) {
+  refreshPorts(cx, force) {
     const r = this.sel;
-    if (!r || this.tab !== "ports" || this.busy) return;
+    if (!r || (this.tab !== "ports" && !force) || this.busy) return;
     this.busy = true;
+    cx.notify();
     cx.spawn(async (cx) => {
       try { const t = await loadPorts(r); if (this.sel === r) this.trees = t; } catch (_e) {}
       this.busy = false;
@@ -98,7 +107,9 @@ export default class ProjectSettings extends View {
     const link = (id, label, fn, danger) => div().id(id).px(8).py(3).rounded(5).border(1).border_color(t.border).text_size(12)
       .text_color(danger ? t.blocked : t.foreground).cursor_pointer().hover((s) => s.bg(t.raised)).on_click(fn).child(label);
     return v_flex().id("ports-list").flex_1().min_h(0).overflow_y_scrollbar().gap(10)
-      .child(div().text_color(t.muted).child(`${total} listening port${total === 1 ? "" : "s"} across ${this.trees.length} worktrees (refreshes every 3s)`))
+      .child(h_flex().gap(8).items_center()
+        .child(div().flex_1().text_color(t.muted).child(`${total} listening port${total === 1 ? "" : "s"} across ${this.trees.length} worktrees (auto-refresh 3s)`))
+        .child(link("ports-reload", this.busy ? "Reloading…" : "Reload", (_e, cx) => this.refreshPorts(cx, true))))
       .children(this.trees.map((w) => v_flex().gap(6).p(10).rounded(8).border(1).border_color(t.border).bg(t.raised)
         .child(h_flex().gap(8).items_center()
           .child(div().size(7).rounded(4).bg(w.items.length ? t.done : t.dim))
@@ -106,9 +117,11 @@ export default class ProjectSettings extends View {
           .when(w.main, (el) => el.child(div().text_size(11).text_color(t.dim).child("main")))
           .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(w.path.replace(home(), "~"))))
         .when(!w.items.length, (el) => el.child(div().text_size(12).text_color(t.dim).child("No port in use")))
-        .children(w.items.map((x) => h_flex().gap(8).items_center().px(4)
+        .children(w.items.map((x) => h_flex().gap(8).items_start().px(4)
           .child(div().w(64).font_semibold().child(String(x.port)))
-          .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted).child(`${x.cmd} · pid ${x.pid}`))
+          .child(v_flex().flex_1().min_w(0)
+            .child(div().text_size(12).text_color(t.muted).child(`${x.args} · pid ${x.pid}`))
+            .child(div().text_size(11.5).text_color(t.dim).child(`📁 ${x.rel}`)))
           .child(link(`op-${x.pid}-${x.port}`, "Open", () => exec("open", [`http://localhost:${x.port}`])))
           .child(link(`kp-${x.pid}-${x.port}`, "Stop", (_e, cx) => { exec("kill", [String(x.pid)]); cx.notify(); }, true))))));
   }
