@@ -23,6 +23,49 @@ async function repoOf(folder) {
   return { main, name: main.split("/").pop(), file: scriptFile(home(), main), legacy: `${main}/.herdr/post-create.sh` };
 }
 
+// Listening TCP ports per worktree of a repo: lsof lists the listeners, the listener's cwd picks the worktree.
+async function loadPorts(r) {
+  const wl = await exec("git", ["worktree", "list", "--porcelain"], { cwd: r.main });
+  const trees = [];
+  for (const blk of wl.stdout.split("\n\n")) {
+    const path = blk.match(/^worktree (.+)$/m)?.[1];
+    if (!path) continue;
+    const br = blk.match(/^branch refs\/heads\/(.+)$/m)?.[1];
+    trees.push({ path, branch: br ?? "(detached)", main: path === r.main, items: [] });
+  }
+  const l = await exec("lsof", ["-nP", "-iTCP", "-sTCP:LISTEN", "-Fpcn"]);
+  const ls = [];
+  let cur = null;
+  for (const line of l.stdout.split("\n")) {
+    const k = line[0], v = line.slice(1);
+    if (k === "p") cur = { pid: +v, cmd: "", port: 0 };
+    else if (k === "c" && cur) cur.cmd = v;
+    else if (k === "n" && cur) { const port = +v.slice(v.lastIndexOf(":") + 1); if (port) ls.push({ ...cur, port }); }
+  }
+  const pids = [...new Set(ls.map((x) => x.pid))];
+  const cwd = new Map();
+  if (pids.length) {
+    const c = await exec("lsof", ["-a", "-d", "cwd", "-p", pids.join(","), "-Fpn"]);
+    let pid = 0;
+    for (const line of c.stdout.split("\n")) {
+      if (line[0] === "p") pid = +line.slice(1);
+      else if (line[0] === "n") cwd.set(pid, line.slice(1));
+    }
+  }
+  const seen = new Set();
+  for (const x of ls) {
+    const dir = cwd.get(x.pid);
+    const key = `${x.pid}:${x.port}`;
+    if (!dir || seen.has(key)) continue;
+    const t = trees.filter((w) => dir === w.path || dir.startsWith(w.path + "/")).sort((a, b) => b.path.length - a.path.length)[0];
+    if (!t) continue;
+    seen.add(key);
+    t.items.push(x);
+  }
+  for (const t of trees) t.items.sort((a, b) => a.port - b.port);
+  return trees.sort((a, b) => Number(b.main) - Number(a.main) || a.branch.localeCompare(b.branch));
+}
+
 export default class ProjectSettings extends View {
   init(_props, cx) {
     this.repos = [];
@@ -32,8 +75,42 @@ export default class ProjectSettings extends View {
     this.known = "";
     this.editor = EditorState.new({ language: "bash", value: "", line_numbers: true, font_family: settings().font_family });
     this.editor.on("change", (_e, cx) => { this.msg = ""; cx.notify(); });
+    this.tab = "ports";
+    this.trees = [];
     this.scan(cx);
     cx.timer.every(5000, (cx) => this.scan(cx));
+    cx.timer.every(3000, (cx) => this.refreshPorts(cx));
+  }
+
+  refreshPorts(cx) {
+    const r = this.sel;
+    if (!r || this.tab !== "ports" || this.busy) return;
+    this.busy = true;
+    cx.spawn(async (cx) => {
+      try { const t = await loadPorts(r); if (this.sel === r) this.trees = t; } catch (_e) {}
+      this.busy = false;
+      cx.notify();
+    });
+  }
+
+  portsView(t) {
+    const total = this.trees.reduce((a, w) => a + w.items.length, 0);
+    const link = (id, label, fn, danger) => div().id(id).px(8).py(3).rounded(5).border(1).border_color(t.border).text_size(12)
+      .text_color(danger ? t.blocked : t.foreground).cursor_pointer().hover((s) => s.bg(t.raised)).on_click(fn).child(label);
+    return v_flex().id("ports-list").flex_1().min_h(0).overflow_y_scrollbar().gap(10)
+      .child(div().text_color(t.muted).child(`${total} listening port${total === 1 ? "" : "s"} across ${this.trees.length} worktrees (refreshes every 3s)`))
+      .children(this.trees.map((w) => v_flex().gap(6).p(10).rounded(8).border(1).border_color(t.border).bg(t.raised)
+        .child(h_flex().gap(8).items_center()
+          .child(div().size(7).rounded(4).bg(w.items.length ? t.done : t.dim))
+          .child(div().font_semibold().child(w.branch))
+          .when(w.main, (el) => el.child(div().text_size(11).text_color(t.dim).child("main")))
+          .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim).child(w.path.replace(home(), "~"))))
+        .when(!w.items.length, (el) => el.child(div().text_size(12).text_color(t.dim).child("No port in use")))
+        .children(w.items.map((x) => h_flex().gap(8).items_center().px(4)
+          .child(div().w(64).font_semibold().child(String(x.port)))
+          .child(div().flex_1().min_w(0).truncate().text_size(12).text_color(t.muted).child(`${x.cmd} · pid ${x.pid}`))
+          .child(link(`op-${x.pid}-${x.port}`, "Open", () => exec("open", [`http://localhost:${x.port}`])))
+          .child(link(`kp-${x.pid}-${x.port}`, "Stop", (_e, cx) => { exec("kill", [String(x.pid)]); cx.notify(); }, true))))));
   }
 
   // Projects of the open spaces; the active space's project is picked first.
@@ -60,6 +137,8 @@ export default class ProjectSettings extends View {
 
   async pick(r) {
     this.sel = r;
+    this.trees = [];
+    loadPorts(r).then((t) => { if (this.sel === r) this.trees = t; }).catch(() => {});
     this.saved = await readTextFile(r.file).catch(() => null);
     const old = this.saved == null ? await readTextFile(r.legacy).catch(() => null) : null;
     this.editor.set_value(this.saved ?? old ?? TEMPLATE);
@@ -107,6 +186,12 @@ export default class ProjectSettings extends View {
           .child(v_flex().gap(4)
             .child(div().text_size(18).font_semibold().child(this.sel.name))
             .child(div().text_size(11.5).text_color(t.dim).truncate().child(this.sel.main.replace(home(), "~"))))
+          .child(h_flex().gap(4)
+            .children([["ports", "Ports"], ["script", "Worktree script"]].map(([k, label]) => div().id(`tab-${k}`).px(12).py(4).rounded(6).cursor_pointer()
+              .text_color(this.tab === k ? t.foreground : t.muted).when(this.tab === k, (x) => x.bg(t.selected)).hover((x) => x.bg(t.hover))
+              .on_click((_e, cx) => { this.tab = k; cx.notify(); }).child(label))))
+          .when(this.tab === "ports", (x) => x.child(this.portsView(t)))
+          .when(this.tab === "script", (x) => x
           .child(v_flex().gap(4)
             .child(div().font_semibold().child("Worktree script"))
             .child(div().text_color(t.muted).child("Runs once in every new worktree of this project (cwd = the worktree). Saved to:"))
@@ -116,6 +201,6 @@ export default class ProjectSettings extends View {
             .child(div().flex_1().text_color(this.msg.startsWith("Failed") ? t.blocked : t.muted)
               .child(this.msg || (dirty ? "Unsaved changes" : this.saved == null ? "No script yet" : "")))
             .child(btn("pset-reset", "Revert", (_e, cx) => cx.spawn(async (cx) => { await this.pick(this.sel); cx.notify(); })))
-            .child(btn("pset-save", "Save", (_e, cx) => this.save(cx), true)))));
+            .child(btn("pset-save", "Save", (_e, cx) => this.save(cx), true))))));
   }
 }
