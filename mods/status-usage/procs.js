@@ -1,8 +1,6 @@
 // Collects the process tree under every Claude session (all spaces) from `ps`.
 import { agents, terminals } from "herdr";
 
-const SERVICE = /mcp|codegraph|claude-mermaid|npm exec|npx |caffeinate|plugin/i;
-
 export function etimeSecs(s) {
   const [d, rest] = s.includes("-") ? s.split("-") : [0, s];
   const p = rest.split(":").map(Number);
@@ -50,9 +48,9 @@ export async function collect(exec) {
       return {
         pid, pids: all.map((x) => x.pid), cmd: pretty(top.cmd), age: top.age,
         cpu: all.reduce((s, x) => s + x.cpu, 0), rss: all.reduce((s, x) => s + x.rss, 0),
-        paused: top.stat.startsWith("T"), service: SERVICE.test(top.cmd), n: all.length,
+        paused: top.stat.startsWith("T"), n: all.length,
       };
-    }).sort((x, y) => Number(x.service) - Number(y.service) || y.age - x.age);
+    }).sort((x, y) => y.age - x.age);
     sessions.push({
       address: a.address, pane: a.pane, space: a.space, tab: a.tab, title: a.title || "Claude",
       where: `${a.space_name} › ${a.tab_name}`, status: a.status, root,

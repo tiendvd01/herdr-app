@@ -46,7 +46,7 @@ export default class WorkspaceStatus extends View {
       try {
         const d = await collect(exec);
         const now = new Map();
-        for (const se of d.sessions) for (const it of se.items) if (!it.service) now.set(it.pid, { it, se });
+        for (const se of d.sessions) for (const it of se.items) now.set(it.pid, { it, se });
         // A task that ran for a while and is gone: tell the user it finished.
         const killed = shared("procs.killed") ?? [];
         for (const [pid, { it, se }] of this.prev) {
@@ -110,9 +110,10 @@ export default class WorkspaceStatus extends View {
 
   procBadge(t) {
     const d = shared("procs");
-    const tasks = (d?.sessions ?? []).flatMap(se => se.items).filter(i => !i.service);
-    const cpu = tasks.reduce((a, i) => a + i.cpu, 0);
-    const mb = tasks.reduce((a, i) => a + i.rss, 0) / 1048576;
+    const tasks = (d?.sessions ?? []).flatMap(se => se.items);
+    const all = tasks;
+    const cpu = all.reduce((a, i) => a + i.cpu, 0);
+    const mb = all.reduce((a, i) => a + i.rss, 0) / 1048576;
     return h_flex().id("procs-badge").gap(6).items_center().cursor_pointer()
       .hover((s) => s.text_color(t.foreground))
       .on_click(() => openOverlay({ mod: "processes", kind: "window", key: "processes", width: 920, height: 720 }))

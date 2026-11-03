@@ -77,7 +77,7 @@ export default class Agents extends View {
     this.pins = JSON.parse(localStorage.getItem("pins") ?? "[]");
     cx.timer.every(30000, (cx) => cx.notify());
     this.first = {};
-    this.looked = {};
+    this.file = {};
     cx.timer.every(5000, (cx) => this.scan(cx));
     this.scan(cx);
   }
@@ -88,17 +88,25 @@ export default class Agents extends View {
       let changed = false;
       for (const a of agents().filter((x) => x.app === "claude-code")) {
         const pid = terminals().find((t) => t.address === a.address)?.foreground?.pid;
-        if (!pid || this.first[a.address] || this.looked[a.address] === pid) continue;
-        this.looked[a.address] = pid;
+        if (!pid) continue;
         try {
-          const meta = JSON.parse((await exec("cat", [`${home()}/.claude/sessions/${pid}.json`])).stdout);
-          const dir = meta.cwd.replace(/[^A-Za-z0-9]/g, "-");
-          const file = `${home()}/.claude/projects/${dir}/${meta.sessionId}.jsonl`;
-          const jq = 'select(.type=="user" and (.isMeta|not)) | .message.content | if type=="string" then . else ([.[]|select(.type=="text")|.text]|join(" ")) end | select(length>0 and (startswith("<")|not) and (startswith("[")|not)) | .[0:200] | gsub("[[:space:]]+";" ")';
+          // Same order as the session list: custom title, then AI title, then first message.
+          if (!this.file[a.address] || this.file[a.address].pid !== pid) {
+            const meta = JSON.parse((await exec("cat", [`${home()}/.claude/sessions/${pid}.json`])).stdout);
+            const dir = meta.cwd.replace(/[^A-Za-z0-9]/g, "-");
+            this.file[a.address] = { pid, path: `${home()}/.claude/projects/${dir}/${meta.sessionId}.jsonl` };
+          }
+          const file = this.file[a.address].path;
+          const jq = '(select(.type=="custom-title") | "C\\t" + (.customTitle // "")), (select(.type=="ai-title") | "A\\t" + (.aiTitle // "")), (select(.type=="user" and (.isMeta|not)) | .message.content | if type=="string" then . else ([.[]|select(.type=="text")|.text]|join(" ")) end | select(length>0 and (startswith("<")|not) and (startswith("[")|not)) | "F\\t" + (.[0:200] | gsub("[[:space:]]+";" ")))';
           const r = await exec("jq", ["-r", jq, file]);
-          const line = r.stdout.split("\n").find((l) => l.trim());
-          if (line) { this.first[a.address] = line.trim(); changed = true; delete this.looked[a.address]; }
-          else delete this.looked[a.address];
+          let c = "", ai = "", f = "";
+          for (const l of r.stdout.split("\n")) {
+            const v = l.slice(2).trim();
+            if (!v) continue;
+            if (l[0] === "C") c = v; else if (l[0] === "A") ai = v; else if (l[0] === "F" && !f) f = v;
+          }
+          const line = c || ai || f;
+          if (line && this.first[a.address] !== line) { this.first[a.address] = line; changed = true; }
         } catch (e) { /* transcript not there yet */ }
       }
       if (changed) cx.notify();
