@@ -3,7 +3,7 @@
 // (the watcher lives in status-usage/postscripts.js).
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, EditorState, Editor } from "gpui-base";
-import { theme, spaces, exec, readTextFile, writeTextFile, home, settings, run } from "herdr";
+import { theme, spaces, exec, readTextFile, writeTextFile, home, settings, run, terminals, panes } from "herdr";
 
 const TEMPLATE = `#!/bin/sh
 # Runs once in each new worktree of this project (cwd = the worktree).
@@ -60,6 +60,18 @@ async function loadPorts(r) {
       if (m) args.set(+m[1], m[2].replace(/\/Users\/[^/\s]+/g, "~"));
     }
   }
+  // Which terminal runs it: the listener shares a controlling tty with that terminal's foreground process.
+  const tty = new Map();
+  const pt = await exec("ps", ["-axo", "pid=,tty="]);
+  for (const line of pt.stdout.split("\n")) {
+    const m = line.trim().match(/^(\d+)\s+(\S+)$/);
+    if (m && m[2] !== "??") tty.set(+m[1], m[2]);
+  }
+  const byTty = new Map();
+  for (const tm of terminals()) {
+    const p = tm.foreground?.pid;
+    if (p && tty.has(p)) byTty.set(tty.get(p), tm.address);
+  }
   const seen = new Set();
   for (const x of ls) {
     const dir = cwd.get(x.pid);
@@ -68,7 +80,7 @@ async function loadPorts(r) {
     const t = trees.filter((w) => dir === w.path || dir.startsWith(w.path + "/")).sort((a, b) => b.path.length - a.path.length)[0];
     if (!t) continue;
     seen.add(key);
-    t.items.push({ ...x, args: args.get(x.pid) ?? x.cmd, dir, rel: dir === t.path ? "./" : dir.slice(t.path.length + 1) });
+    t.items.push({ ...x, terminal: byTty.get(tty.get(x.pid)) ?? null, args: args.get(x.pid) ?? x.cmd, dir, rel: dir === t.path ? "./" : dir.slice(t.path.length + 1) });
   }
   for (const t of trees) t.items.sort((a, b) => a.port - b.port);
   return trees.sort((a, b) => Number(b.main) - Number(a.main) || a.branch.localeCompare(b.branch));
@@ -102,6 +114,15 @@ export default class ProjectSettings extends View {
     });
   }
 
+  // Jump to the pane showing that terminal (its space and tab first).
+  gotoTerminal(addr) {
+    const p = panes().find((x) => x.terminal === addr);
+    const sp = spaces().find((s) => s.tabs?.some((tb) => tb.id === p?.tab));
+    if (sp) run("space.select", { id: sp.id });
+    if (p) { run("tab.select", { id: p.tab }); run("pane.focus", { pane: p.pane }); }
+    else run("pane.focus", { terminal: addr });
+  }
+
   portsView(t) {
     const total = this.trees.reduce((a, w) => a + w.items.length, 0);
     const link = (id, label, fn, danger) => div().id(id).px(8).py(3).rounded(5).border(1).border_color(t.border).text_size(12)
@@ -122,6 +143,7 @@ export default class ProjectSettings extends View {
           .child(v_flex().flex_1().min_w(0)
             .child(div().text_size(12).text_color(t.muted).child(`${x.args} · pid ${x.pid}`))
             .child(div().text_size(11.5).text_color(t.dim).child(`📁 ${x.rel}`)))
+          .when(!!x.terminal, (el) => el.child(link(`go-${x.pid}-${x.port}`, "Terminal", () => this.gotoTerminal(x.terminal))))
           .child(link(`op-${x.pid}-${x.port}`, "Open", () => exec("open", [`http://localhost:${x.port}`])))
           .child(link(`kp-${x.pid}-${x.port}`, "Stop", (_e, cx) => { exec("kill", [String(x.pid)]); cx.notify(); }, true))))));
   }
