@@ -36,6 +36,9 @@ export default class WorkspaceStatus extends View {
     this.prev = new Map();
     cx.timer.every(4000, (cx) => this.pollProcs(cx));
     this.pollProcs(cx);
+    // The Sessions dialog's refresh button bumps shared "procs.refresh"; poll again right away.
+    this.seenRefresh = shared("procs.refresh");
+    cx.timer.every(500, (cx) => { const r = shared("procs.refresh"); if (r !== this.seenRefresh) { this.seenRefresh = r; this.pollProcs(cx); } });
     cx.timer.every(3000, (cx) => { if (!this.psbusy) { this.psbusy = true; cx.spawn(async () => { try { await checkPostScripts(exec); } catch (e) { console.log("post-script", String(e)); } this.psbusy = false; }); } });
   }
 

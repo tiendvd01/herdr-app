@@ -110,7 +110,7 @@ hc send --force "$addr" /compact
     const tasks = se.items;
     const cpu = se.items.reduce((a, i) => a + i.cpu, 0);
     const rss = se.items.reduce((a, i) => a + i.rss, 0);
-    const busy = (se.busyCpu ?? 0) >= 3;
+    const busy = (se.busyCpu ?? 0) >= 10;
     const col = se.status === "blocked" ? t.blocked : se.status === "working" ? t.working : se.status === "done" ? t.done : t.idle;
     return v_flex().gap(6).p(10).rounded(8).border(1).border_color(t.border).bg(t.surface)
       .child(h_flex().gap(8).items_center()
@@ -152,6 +152,7 @@ hc send --force "$addr" /compact
       .child(v_flex().px(14).py(10).gap(6).border_b(1).border_color(t.border)
         .child(h_flex().gap(8).items_center()
           .child(div().flex_1().font_semibold().text_size(14).child("Sessions"))
+          .child(this.iconBtn(t, "refresh", "rotate-cw", () => setShared("procs.refresh", Date.now())))
           .child(this.btn(t, "fold-all", sessions.some((x) => this.expanded.has(x.address)) ? "Collapse all" : "Expand all", (_e, cx) => {
             if (sessions.some((x) => this.expanded.has(x.address))) this.expanded.clear();
             else sessions.forEach((x) => this.expanded.add(x.address));
