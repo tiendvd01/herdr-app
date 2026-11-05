@@ -116,6 +116,7 @@ export default class ProjectSettings extends View {
 
   // Jump to the pane showing that terminal (its space and tab first).
   gotoTerminal(addr) {
+    run("layout.select", { stack: "content", child: "main" });
     const p = panes().find((x) => x.terminal === addr);
     const sp = spaces().find((s) => s.tabs?.some((tb) => tb.id === p?.tab));
     if (sp) run("space.select", { id: sp.id });
