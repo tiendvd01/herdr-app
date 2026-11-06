@@ -63,12 +63,10 @@ export default class Issues extends View {
   init(_props, cx) {
     // Opened as the diagram viewer (a dialog): this copy is the viewer, nothing else.
     if (props()?.viewer) { this.viewer = Object.create(Viewer.prototype); this.viewer.init(_props, cx); return; }
-    this.repos = JSON.parse(localStorage.getItem("repos") ?? "{}"); // space id -> repo typed by hand
     this.saved = JSON.parse(localStorage.getItem("spaces") ?? "{}"); // space id -> {state, mine, query, open}
     this.autoRepo = {}; // folder -> repo from gh (null: not a repo / asking)
     this.ws = {}; // space id -> live state
     this.cur = null; // the space whose state is shown
-    this.editingRepo = false;
     this.diagrams = {}; // hash -> { status: "pending" | "ok" | "error", w, h, error }
     this.sums = {}; // "owner/repo#n" -> saved summary
     this.sumRun = {}; // key -> { error } while a summary runs (or failed)
@@ -88,8 +86,6 @@ export default class Issues extends View {
 
     this.search = InputState.new({ placeholder: "Search issues… (enter)" });
     this.search.on("submit", (_e, cx) => { const s = this.st(); s.query = this.search.value().trim(); this.persist(); this.refresh(cx, true); cx.notify(); });
-    this.repoInput = InputState.new({ placeholder: "owner/repo (empty: from folder)" });
-    this.repoInput.on("submit", (_e, cx) => this.setRepo(this.repoInput.value().trim(), cx));
 
   }
 
@@ -115,7 +111,7 @@ export default class Issues extends View {
     if (this.switching === id) return;
     this.switching = id;
     cx.spawn(async (cx) => {
-      this.cur = id; this.switching = null; this.editingRepo = false;
+      this.cur = id; this.switching = null;
       const s = this.st();
       this.search.set_value(s.query);
       // Reopen the issue this space had open (after a reload too).
@@ -131,17 +127,8 @@ export default class Issues extends View {
     return (f?.space === this.cur ? f?.cwd : null) ?? this.space()?.folder ?? null;
   }
   repo() {
-    if (this.cur && this.repos[this.cur]) return this.repos[this.cur];
     const f = this.folder();
     return f ? this.autoRepo[f] ?? null : null;
-  }
-  setRepo(repo, cx) {
-    if (!this.cur) return;
-    if (repo) this.repos[this.cur] = repo; else delete this.repos[this.cur];
-    localStorage.setItem("repos", JSON.stringify(this.repos));
-    const s = this.st();
-    this.editingRepo = false; s.open = null; s.detail = null; this.persist();
-    this.refresh(cx, true); cx.notify();
   }
   detectRepo(cx) {
     const f = this.folder();
@@ -386,15 +373,10 @@ export default class Issues extends View {
       .bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
       .on_size_change((size, cx) => { if (Math.abs(size.width - this.width) > 1) { this.width = size.width; cx.notify(); } });
 
-    // Header: title, count, the repo as a select-looking box (click to type another), reload.
-    const repoBox = this.editingRepo
-      ? div().flex_1().min_w(80).h(24).px(8).flex().items_center().rounded(6).border_1().border_color(t.accent)
-        .child(Input.new(this.repoInput).h_full().w_full().text_size(12).text_color(t.foreground))
-      : h_flex().id("repo-box").min_w(0).h(24).px(8).gap(6).items_center().rounded(6).border_1().border_color(t.border).bg(t.raised)
-        .cursor_pointer().hover((st) => st.bg(t.hover)).tooltip("The repo of this space: click to type owner/repo (empty: from the folder)")
-        .on_click((_e, cx) => { this.editingRepo = true; this.repoInput.set_value(this.repos[this.cur] ?? ""); this.repoInput.focus(); cx.notify(); })
-        .child(div().min_w(0).truncate().text_size(12).child(repo ?? "Set repo"))
-        .child(svg("mods/reviewer/chevron-down.svg").size(11).flex_none().text_color(t.dim));
+    // Header: title, count, the repo of this space (read from its folder), reload.
+    const repoBox = h_flex().min_w(0).h(24).px(8).items_center().rounded(6).border_1().border_color(t.border).bg(t.raised)
+      .tooltip("The GitHub repo of this space's folder")
+      .child(div().min_w(0).truncate().text_size(12).child(repo ?? "No repo"));
     const header = h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
       .child(div().flex_none().font_semibold().child("Issues"))
       .when(!s.open && s.list.length > 0, (e) => e.child(ui.pill(`${s.list.length}${s.list.length >= 100 ? "+" : ""}`)))
@@ -403,7 +385,7 @@ export default class Issues extends View {
       .child(ui.link("reload", "Reload", (_e, cx) => { if (s.open) this.show(s.open.number, cx, s.open.repo, true); else this.refresh(cx, true); cx.notify(); }));
 
     if (!repo && !s.open) return root.child(header).child(div().p(14).text_color(t.dim).whitespace_normal()
-      .child("This folder is not a GitHub repo. Click Set repo above and type owner/repo."));
+      .child("This folder is not a GitHub repo."));
     return root.child(header).child(s.open ? this.renderDetail(s, t, ui, cx) : this.renderList(s, t, ui, repo));
   }
 
