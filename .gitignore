@@ -38,3 +38,6 @@ node_modules/
 
 # Issues panel: rendered mermaid diagrams (cache)
 mods/issues/.diagrams/
+
+# Local-markdown issue tracker (agent skills)
+.scratch/

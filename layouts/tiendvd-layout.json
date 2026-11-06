@@ -145,7 +145,7 @@
                       "id": "files",
                       "type": "block",
                       "content": {
-                        "mod": "files"
+                        "mod": "my-files"
                       }
                     },
                     {
@@ -160,6 +160,13 @@
                       "type": "block",
                       "content": {
                         "mod": "issues"
+                      }
+                    },
+                    {
+                      "id": "graph",
+                      "type": "block",
+                      "content": {
+                        "mod": "git-graph"
                       }
                     }
                   ],

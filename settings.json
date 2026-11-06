@@ -1,12 +1,12 @@
 {
-  "zoom": 1,
+  "zoom": 0.9,
   "sounds": {
     "enabled": true
   },
-  "font": "ZedMono Nerd Font Mono",
+  "font": "BlexMono Nerd Font Mono",
   "font_size": 13,
   "font_ligatures": false,
-  "ui_font": "ZedMono Nerd Font",
+  "ui_font": "BlexMono Nerd Font",
   "minimum_contrast": 1,
   "appearance": "dark"
 }

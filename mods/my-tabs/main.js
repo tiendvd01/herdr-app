@@ -112,7 +112,7 @@ export default class Tabs extends View {
       ? Math.max(10, (root.traffic_lights[0] + 64) / settings().zoom - (sidebar?.hidden ? 0 : sidebar?.size?.px ?? 0))
       : 10;
     const panel = find(root, "panel"), body = find(root, "panel-body");
-    const enabled = [...(shared("workspace.panels") ?? ["files", "changes"]), "issues"];
+    const enabled = [...(shared("workspace.panels") ?? ["files", "changes"]), "issues", "graph"];
     this.syncPanel(space, panel, body, enabled);
     if (JSON.stringify(location()) !== this.diffKey) this.refreshDiff(cx, true);
     const d = this.diff;
@@ -121,7 +121,7 @@ export default class Tabs extends View {
         .when(d.add > 0, el => el.child(div().text_color(t.ansi2).child(`+${d.add}`)))
         .when(d.del > 0, el => el.child(div().text_color(t.ansi1).child(`-${d.del}`)))
       : null;
-    const panelButton = (id, label, icon, extra) => {
+    const panelButton = (id, label, icon, extra, tip) => {
       const on = panel && !panel.hidden && body?.active === id;
       return h_flex().id(`panel-${id}`).h(26).px(extra ? 7 : 0).min_w(26).gap(5).flex_none().items_center().justify_center().rounded(6)
         .text_size(12).bg(on ? t.selected : t.chrome).text_color(on ? t.foreground : t.muted)
@@ -129,16 +129,18 @@ export default class Tabs extends View {
         .on_click(() => {
           if (on) run("layout.hide", { id: "panel" });
           else { run("layout.select", { stack: "panel-body", child: id }); run("layout.show", { id: "panel" }); }
-        }).child(svg(icon).size(14)).when(Boolean(extra), el => el.child(extra));
+        }).tooltip(label)
+        .child(svg(icon).size(14)).when(Boolean(extra), el => el.child(extra));
     };
     return h_flex().size_full().min_w(0).px(10).pl(lightsPadding).gap(3).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .on_mouse_up("left", () => { this.pressed = null; })
       .on_scroll_wheel(e => { if (Math.abs(e.delta.y) >= 1) run(e.delta.y > 0 ? "tab.prev" : "tab.next"); })
       .child(h_flex().id("tab-scroll").flex_1().min_w(0).h_full().items_center().gap(3).overflow_x_scrollbar().children(shown.map(item)))
       .child(button("tab-new", "+", () => openOverlay({ mod: "my-new-menu", kind: "popup", width: 250, height: 543 })))
-      .when(enabled.includes("files"), el => el.child(panelButton("files", "Files", "mods/files/file.svg")))
-      .when(enabled.includes("changes"), el => el.child(panelButton("changes", "Changes", "mods/changes/changes.svg", counts)))
-      .child(panelButton("issues", "Issues", "mods/issues/issue.svg"))
+      .when(enabled.includes("files"), el => el.child(panelButton("files", "Files", "mods/files/file.svg", null, "browse the space's folder")))
+      .when(enabled.includes("changes"), el => el.child(panelButton("changes", "Changes", "mods/changes/changes.svg", counts, d && (d.add || d.del) ? `+${d.add} −${d.del} uncommitted lines` : "no uncommitted changes")))
+      .child(panelButton("issues", "Issues", "mods/issues/issue.svg", null, "GitHub issues of this repo"))
+      .child(panelButton("graph", "Git", "mods/git-graph/icons/graph.svg", null, "commit graph of this repo"))
       .when(w?.buttons, el => el.child(button("minimize", w.platform === "windows" ? svg("mods/my-tabs/win-min.svg").size(16) : "−", () => run("window.minimize")))
         .child(button("maximize", w.platform === "windows" ? svg(`mods/my-tabs/${w.maximized ? "win-restore" : "win-max"}.svg`).size(16) : "□", () => run("window.maximize")))
         .child(button("close-window", w.platform === "windows" ? svg("mods/my-tabs/win-close.svg").size(16) : svg("mods/pane/close.svg").size(13), () => run("window.close"))));

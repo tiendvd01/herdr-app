@@ -371,7 +371,12 @@ export default class Issues extends View {
     };
     const root = v_flex().id("issues").size_full().min_h(0).relative().rounded(10).overflow_hidden()
       .bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
-      .on_size_change((size, cx) => { if (Math.abs(size.width - this.width) > 1) { this.width = size.width; cx.notify(); } });
+      .on_size_change((size, cx) => {
+        // Debounce: only re-render (diagram widths) once dragging has settled.
+        if (Math.abs(size.width - this.width) <= 1) { this.widthTimer?.cancel(); this.widthTimer = null; return; }
+        this.widthTimer?.cancel();
+        this.widthTimer = cx.timer.after(150, (acx) => { this.widthTimer = null; this.width = size.width; acx.notify(); });
+      });
 
     // Header: title, count, the repo of this space (read from its folder), reload.
     const repoBox = h_flex().min_w(0).h(24).px(8).items_center().rounded(6).border_1().border_color(t.border).bg(t.raised)
