@@ -102,6 +102,7 @@ export default class Issues extends View {
   fresh(p) {
     return { state: p.state ?? "open", mine: p.mine ?? true, query: p.query ?? "", open: p.open ?? null,
       list: [], listKey: null, loading: false, error: null, detail: null, detailLoading: false,
+      collapsed: new Set(), // ids of comments folded in the open issue
     };
   }
   persist() {
@@ -233,7 +234,7 @@ export default class Issues extends View {
   show(n, cx, repo = this.repo(), force) {
     const s = this.st(); if (!repo) return;
     const c = this.cached("issues", keyOf(repo, n));
-    s.open = { repo, number: n }; s.detail = c?.data ?? null; s.detailAt = c?.at ?? null; s.detailLoading = !c; s.error = null;
+    s.open = { repo, number: n }; s.collapsed = new Set(); s.detail = c?.data ?? null; s.detailAt = c?.at ?? null; s.detailLoading = !c; s.error = null;
     this.persist();
     this.fetchIssue(repo, n, cx, force);
   }
@@ -441,12 +442,17 @@ export default class Issues extends View {
   renderDetail(s, t, ui, cx) {
     const d = s.detail, n = s.open.number, k = keyOf(s.open.repo, n), sid = this.cur ?? "none";
     const sum = this.sums[k], run = this.sumRun[k];
+    const allFolded = (d?.comments ?? []).length > 0 && d.comments.every((c, i) => s.collapsed.has(c.id ?? `c-${i}`));
     const bar = ui.subbar()
       .child(ui.toggle("back", "← Issues", false, (_e, cx) => this.back(cx)))
       .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(`#${n}`))
       .when(this.inflight.has(`issues:${k}`), (e) => e.child(svg("mods/workspace-chrome/spinner.svg").size(12).text_color(t.dim).spin(900)))
       .when(Boolean(s.detailAt) && !this.inflight.has(`issues:${k}`), (e) => e.child(div().px(4).text_color(t.dim).child(since(s.detailAt))))
       .when(Boolean(d), (e) => e
+        .when((d?.comments ?? []).length > 0, (x) => x.child(ui.toggle("fold-all", allFolded ? "Expand comments" : "Collapse comments", false, (_e, cx) => {
+          if (allFolded) s.collapsed.clear(); else for (const [i, c] of d.comments.entries()) s.collapsed.add(c.id ?? `c-${i}`);
+          cx.notify();
+        })))
         .child(ui.toggle("summarize", run && !run.error ? "Summarizing…" : sum ? "Re-summarize" : "Summarize", false, (_e, cx) => this.summarize(cx)))
         .child(ui.toggle("browser", "GitHub ↗", false, () => exec("open", [d.url])))
         .child(ui.toggle("state", d.state === "OPEN" ? "Close" : "Reopen", false, (_e, cx) => this.setState(n, d.state === "OPEN", cx))));
@@ -454,9 +460,15 @@ export default class Issues extends View {
     if (!d) return v_flex().flex_1().min_h(0).child(bar).child(body.child(div().text_color(s.error ? t.ansi1 : t.dim).whitespace_normal().child(s.detailLoading ? "Loading issue…" : s.error ?? "")));
 
     // Cards like Changes' comment cards; markdown ids carry the space and issue.
-    const card = (id, title, md, accent) => v_flex().flex_none().rounded(8).border_1().border_color(accent ? t.accent + "66" : t.border).bg(t.surface).overflow_hidden()
-      .child(div().px(10).py(5).text_size(10.5).text_color(accent ? t.accent : t.dim).border_b(1).border_color(t.border).child(title))
-      .child(div().px(10).py(8).text_size(12.5).child(this.markdown(`${sid}-${k}-${id}`, md, t, cx)));
+    // `fold` = { folded, toggle }: the header becomes a button and a folded card shows only its header.
+    const card = (id, title, md, accent, fold) => v_flex().flex_none().rounded(8).border_1().border_color(accent ? t.accent + "66" : t.border).bg(t.surface).overflow_hidden()
+      .child(h_flex().id(`ch-${id}`).px(10).py(5).gap(6).items_center().text_size(10.5).text_color(accent ? t.accent : t.dim)
+        .when(!fold?.folded, (e) => e.border_b(1).border_color(t.border))
+        .when(Boolean(fold), (e) => e.cursor_pointer().hover((x) => x.bg(t.hover)).on_click((_e, cx) => { fold.toggle(); cx.notify(); }))
+        .when(Boolean(fold), (e) => e.child(div().w(10).flex_none().child(fold.folded ? "▸" : "▾")))
+        .child(div().flex_1().min_w(0).truncate().child(title))
+        .when(fold?.folded, (e) => e.child(div().flex_none().text_color(t.dim).child("folded"))))
+      .when(!fold?.folded, (e) => e.child(div().px(10).py(8).text_size(12.5).child(this.markdown(`${sid}-${k}-${id}`, md, t, cx))));
 
     return v_flex().flex_1().min_h(0).child(bar).child(body
       .child(div().flex_none().text_size(15).font_semibold().whitespace_normal().child(`${d.title}`))
@@ -471,6 +483,10 @@ export default class Issues extends View {
       .when(Boolean(sum), (e) => e.child(card(`summary-${sum.at}`,
         `Summary · ${since(sum.at)}${!this.inflight.has(`issues:${k}`) && sum.version !== versionOf(d) ? " · ⚠ OUTDATED (issue changed since)" : ""}`, sum.text, true)))
       .child(card("body", `${d.author?.login ?? ""} · description`, d.body))
-      .children((d.comments ?? []).map((c, i) => card(`c-${i}`, `${c.author?.login ?? "?"} · ${ago(c.createdAt)}`, c.body))));
+      .children((d.comments ?? []).map((c, i) => {
+        const cid = c.id ?? `c-${i}`, preview = (c.body ?? "").replace(/\s+/g, " ").trim().slice(0, 80), folded = s.collapsed.has(cid);
+        return card(`c-${i}`, `${c.author?.login ?? "?"} · ${ago(c.createdAt)}${folded && preview ? ` · ${preview}` : ""}`, c.body, false,
+          { folded, toggle: () => { folded ? s.collapsed.delete(cid) : s.collapsed.add(cid); } });
+      })));
   }
 }
