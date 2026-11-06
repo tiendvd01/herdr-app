@@ -296,15 +296,6 @@ export default class Issues extends View {
       cx.notify();
     });
   }
-  setState(n, close, cx) {
-    const s = this.st(), repo = s.open.repo;
-    cx.spawn(async (cx) => {
-      const r = await exec("gh", ["issue", close ? "close" : "reopen", String(n), "-R", repo]).catch(fail);
-      if (r.code !== 0) notify({ title: "gh failed", body: (r.stderr || "").trim().slice(0, 200), level: "error" });
-      if (this.st() === s) { this.show(n, cx, repo, true); this.refresh(cx, true); }
-      cx.notify();
-    });
-  }
 
   // ---------- diagrams ----------
   // Starts rendering one diagram (spawned: safe to call from render).
@@ -468,8 +459,7 @@ export default class Issues extends View {
           cx.notify();
         })))
         .child(ui.toggle("summarize", run && !run.error ? "Summarizing…" : sum ? "Re-summarize" : "Summarize", false, (_e, cx) => this.summarize(cx)))
-        .child(ui.toggle("browser", "GitHub ↗", false, () => exec("open", [d.url])))
-        .child(ui.toggle("state", d.state === "OPEN" ? "Close" : "Reopen", false, (_e, cx) => this.setState(n, d.state === "OPEN", cx))));
+        .child(ui.toggle("browser", "GitHub ↗", false, () => exec("open", [d.url]))));
     const body = v_flex().id("detail").flex_1().min_h(0).overflow_y_scrollbar().p(12).gap(10);
     if (!d) return v_flex().flex_1().min_h(0).child(bar).child(body.child(div().text_color(s.error ? t.ansi1 : t.dim).whitespace_normal().child(s.detailLoading ? "Loading issue…" : s.error ?? "")));
 

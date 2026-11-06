@@ -7,7 +7,7 @@ Panel GitHub issues ở cột phải (cùng stack `panel-body` với Files và C
 - **Mỗi space có trạng thái riêng**: repo, bộ lọc, từ khóa tìm, issue đang mở. Đổi space thì đổi theo. Trạng thái lưu trong `localStorage` khóa `spaces`.
 - **Repo** lấy từ thư mục của terminal đang focus bằng `gh repo view`. Muốn chỉ định tay thì gõ `owner/repo` vào ô repo (lưu theo space, khóa `repos`); để trống thì quay lại tự dò.
 - **Bộ lọc**: Open / Closed / All, và Mine (`--assignee @me`). Space mới mặc định **Open + Mine** (`fresh()` trong `main.js`); space đã lưu giữ lựa chọn cũ. Tìm kiếm gửi bằng Enter. Danh sách tối đa 100 issue.
-- Bấm một issue để xem nội dung và comment (render markdown native, link mở bằng `open`). Có nút Close/Reopen và "GitHub ↗".
+- Bấm một issue để xem nội dung và comment (render markdown native, link mở bằng `open`). Có nút "GitHub ↗" (mở issue trên web). Mod không đóng/mở lại issue; việc đó làm trên web.
 - **Thu gọn comment**: bấm tiêu đề một comment (mũi tên ▾/▸) để gập/mở; comment gập chỉ còn tiêu đề kèm 80 ký tự đầu. Nút "Collapse comments" / "Expand comments" ở thanh trên gập hoặc mở tất cả. Trạng thái gập chỉ giữ trong bộ nhớ, theo space, và reset khi mở issue khác (khóa theo `c.id` của comment).
 - **Sơ đồ mermaid** trong body/comment (khối ` ```mermaid `) được vẽ thành ảnh bằng `mmdc` (mermaid-cli), chạy qua `zsh -ilc` để lấy node từ nvm. Bấm ảnh mở viewer (`viewer.js`, hộp thoại). Ảnh cache ở `mods/issues/.diagrams/` (gitignored).
 
