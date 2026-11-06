@@ -12,6 +12,9 @@ update-notes.json
 view.json
 window.json
 
+# Per-project settings (post-create scripts, ports), local to this machine
+projects/
+
 # Herdr-generated diagnostics and backups
 *.error
 *.old-*
