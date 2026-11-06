@@ -14,7 +14,8 @@
 // strip under it when the panel is narrow), so the rows never move: a
 // list row may hold no input, so the box can't sit between the lines.
 // Keys: "reviewer.submit", "reviewer.ask" (about the whole
-// diff), "reviewer.clear" (drops the draft comments); in the send
+// diff), "reviewer.clear" (drops the draft comments), "reviewer.wrap" and
+// "reviewer.split" (toggle line wrap and the side-by-side view); in the send
 // dialog (dialog.js) "reviewer.send" and "reviewer.close".
 // Another mod opens a file's diff by setting shared "reviewer.open" to
 // { id, at: Date.now(), path (absolute), on (machine or null) }: the panel
@@ -29,7 +30,7 @@
 //          base: the branch reviews are against (default: origin/HEAD, else main, else master) }.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextareaState, Textarea, Scrollbar, v_virtual_list, VirtualListScrollHandle, Popover } from "gpui-base";
-import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, nextCommand, props, shared, setShared } from "herdr";
+import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, settings, nextCommand, props, shared, setShared, run } from "herdr";
 import { tokenize, languageOf } from "./highlight.js";
 import { ask } from "./ask.js";
 import { palette } from "./palette.js";
@@ -52,13 +53,31 @@ const OPEN = "reviewer.open", OPEN_TTL = 30_000;
 // moment; never start a repo's fsmonitor just because it got focus; never
 // rewrite the index from git diff. Clicked actions such as commit run as is.
 const READ = ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "diff.autoRefreshIndex=false"];
-// The code font: the terminal's (`font` in settings, JetBrains Mono when
-// unset), one size smaller than the terminal (`font_size`, 14 when unset);
-// `props.font_size` overrides. Rows and widths scale with it.
-const codeFont = () => (typeof settings().font === "string" && settings().font) || "JetBrains Mono";
+// The code font: the terminal font chosen in Herdr (settings().font_family,
+// which follows the layout and settings.json), one size smaller than the
+// terminal (font_size); `props.font_size` overrides. Rows and widths scale with it.
+const codeFont = () => (typeof settings().font_family === "string" && settings().font_family) || "JetBrains Mono";
 const codeSize = () => Number(props()?.font_size) || Math.max(9, (Number(settings().font_size) || 14) - 1);
+// Below this diff width a split view falls back to one column.
+const SPLIT_MIN = 640;
+// Cuts tokenized spans into lines of at most `cpl` characters (a wrapped row).
+function chunk(spans, cpl) {
+  const out = [[]]; let n = 0;
+  for (const s of spans) {
+    let text = s.text;
+    while (text.length) {
+      if (n === cpl) { out.push([]); n = 0; }
+      const piece = text.slice(0, cpl - n);
+      out[out.length - 1].push({ text: piece, cls: s.cls }); n += piece.length; text = text.slice(piece.length);
+    }
+  }
+  return out;
+}
 const rowOf = (size) => Math.round(size * 1.8);
-const charOf = (size) => size * 0.62;
+// A monospace character's advance, as a share of the font size. Wrapping cuts
+// lines by it, so a font narrower than its guess wraps early; unknown fonts get 0.6.
+const ADVANCE = [[/zed ?mono|iosevka/i, 0.5], [/sf mono|menlo|monaco/i, 0.61], [/jetbrains/i, 0.6], [/fira|hack|source code|cascadia|geist mono/i, 0.6]];
+const charOf = (size) => size * (ADVANCE.find(([re]) => re.test(codeFont()))?.[1] ?? 0.6);
 
 // A row's identity across reloads: its kind, number and text.
 const desc = (r) => ({ kind: r.kind, number: r.number ?? null, text: r.text });
@@ -90,6 +109,10 @@ export default class Changes extends View {
     this.files = []; this.rows = []; this.index = new Map(); this.items = []; this.sizes = []; this.diffWidth = 0; this.gutter = 30; this.message = "";
     this.comments = []; this.composer = null; this.handle = cx.focus_handle(); this.scroll = VirtualListScrollHandle.new();
     this.fontSize = codeSize(); this.row = rowOf(this.fontSize);
+    // Wrap and split are remembered by this copy of the panel.
+    let view = {};
+    try { view = JSON.parse(localStorage.getItem("view") ?? "{}") ?? {}; } catch { view = {}; }
+    this.wrap = Boolean(view.wrap); this.split = Boolean(view.split); this.areaW = 0; this.pairs = []; this.pairOf = new Map();
     this.scope = "work"; this.scopeInfo = null; this.choosingScope = false; this.ref = "HEAD";
     this.input = InputState.new({ placeholder: "Commit message" });
     this.input.on("change", (_e, cx) => {
@@ -115,6 +138,8 @@ export default class Changes extends View {
         else if (c === "submit") this.submit(cx);
         else if (c === "clear") this.setComments([], cx);
         else if (c === "scope") this.cycleScope(cx);
+        else if (c === "wrap") this.setView({ wrap: !this.wrap }, cx);
+        else if (c === "split") this.setView({ split: !this.split }, cx);
         cx.notify();
       }
     });
@@ -327,8 +352,48 @@ export default class Changes extends View {
   measure() {
     const ch = charOf(this.fontSize), digits = String(Math.max(0, ...this.rows.map((r) => r.number ?? 0))).length;
     this.gutter = Math.max(30, Math.ceil(digits * ch + 10));
-    this.diffWidth = Math.max(300, ...(this.lines ?? []).map((line) => Math.ceil(line.length * ch) + this.gutter + 36));
+    this.maxText = Math.ceil(Math.max(0, ...this.rows.map((r) => r.text.replace(/\t/g, "    ").length)) * ch) + 12;
+    this.halfW = Math.max(Math.floor(this.areaW / 2), this.gutter + 18 + this.maxText);
+    this.diffWidth = this.wrap ? 0 : this.splitOn() ? this.halfW * 2 : Math.max(300, this.gutter + 36 + this.maxText);
     this.rebuild();
+  }
+
+  splitOn() { return this.split && this.areaW >= SPLIT_MIN; }
+  // Characters that fit on one line of code: the whole diff, or one side of a split.
+  cpl() {
+    const w = this.splitOn() ? Math.floor(this.areaW / 2) : this.areaW || (this.size?.width ?? 368);
+    return Math.max(12, Math.floor((w - this.gutter - 18 - 16) / charOf(this.fontSize)));
+  }
+  linesOf(i, cpl) {
+    if (i == null || !this.wrap) return 1;
+    const r = this.rows[i];
+    return r.kind === "@" || r.kind === "" ? 1 : Math.max(1, Math.ceil(r.text.replace(/\t/g, "    ").length / cpl));
+  }
+  setView(change, cx) {
+    Object.assign(this, change);
+    try { localStorage.setItem("view", JSON.stringify({ wrap: this.wrap, split: this.split })); } catch { /* not kept */ }
+    this.measure(); cx.notify();
+  }
+  // Split view: each hunk's removed lines face its added lines, context faces itself.
+  buildPairs() {
+    const pairs = [], pairOf = new Map();
+    let dels = [], adds = [];
+    const flush = () => {
+      for (let k = 0; k < Math.max(dels.length, adds.length); k++) {
+        const p = { l: dels[k] ?? null, r: adds[k] ?? null };
+        if (p.l != null) pairOf.set(p.l, pairs.length);
+        if (p.r != null) pairOf.set(p.r, pairs.length);
+        pairs.push(p);
+      }
+      dels = []; adds = [];
+    };
+    this.rows.forEach((r, i) => {
+      if (r.kind === "-") { if (adds.length) flush(); dels.push(i); }
+      else if (r.kind === "+") adds.push(i);
+      else { flush(); pairOf.set(i, pairs.length); pairs.push(r.kind === " " ? { l: i, r: i } : { full: i }); }
+    });
+    flush();
+    this.pairs = pairs; this.pairOf = pairOf;
   }
 
   // Where a row descriptor is in the current diff, or -1.
@@ -338,7 +403,14 @@ export default class Changes extends View {
   // comments on the whole file come first. The comment being edited stays
   // in place as a live preview of what is typed in the box.
   rebuild() {
-    const items = this.rows.map((_r, i) => ({ key: `r:${i}`, kind: "row", i, height: this.row }));
+    const cpl = this.cpl(), split = this.splitOn();
+    let items;
+    if (split) {
+      this.buildPairs();
+      // `i`: the row a comment hangs under is found through pairOf; a pair stands for its rows.
+      items = this.pairs.map((p, k) => p.full != null ? { key: `r:${p.full}`, kind: "row", i: p.full, last: p.full, height: this.row }
+        : { key: `p:${k}`, kind: "pair", k, l: p.l, r: p.r, last: Math.max(p.l ?? -1, p.r ?? -1), height: this.row * Math.max(this.linesOf(p.l, cpl), this.linesOf(p.r, cpl)) });
+    } else items = this.rows.map((_r, i) => ({ key: `r:${i}`, kind: "row", i, last: i, height: this.row * this.linesOf(i, cpl) }));
     const under = new Map(), editing = this.composer?.editing ?? null;
     this.items = [];
     for (const c of this.comments) {
@@ -350,7 +422,12 @@ export default class Changes extends View {
       if (from < 0 || to < 0 || to < from) continue;
       (under.get(to) ?? under.set(to, []).get(to)).push({ ...it, from, to });
     }
-    for (const item of items) { this.items.push(item); for (const c of under.get(item.i) ?? []) this.items.push(c); }
+    if (split) {
+      // A comment goes under the pair holding its last line.
+      const byPair = new Map();
+      for (const [to, list] of under) { const k = this.pairOf.get(to) ?? -1; (byPair.get(k) ?? byPair.set(k, []).get(k)).push(...list); }
+      items.forEach((item, idx) => { this.items.push(item); for (const c of byPair.get(this.pairs[idx] ? idx : -1) ?? []) this.items.push(c); });
+    } else for (const item of items) { this.items.push(item); for (const c of under.get(item.i) ?? []) this.items.push(c); }
     this.sizes = this.items.map((it) => it.height);
   }
 
@@ -580,21 +657,50 @@ export default class Changes extends View {
           .child(div().text_size(10).text_color(it.live ? t.accent : t.dim).child(it.live ? `Comment · ${span} · editing` : `Comment · ${span} · click to edit`))
           .child(div().text_size(this.fontSize).whitespace_normal().text_color(it.text ? t.foreground : t.dim).child(it.text || "(empty)")));
     }
-    const { kind, number, spans } = this.rows[it.i], i = it.i;
-    const on = target && i >= target.from && i <= target.to, mark = commented.has(i);
+    if (it.kind === "pair") {
+      const half = this.wrap ? null : this.halfW;
+      return h_flex().w_full().h(it.height).flex_none().items_start().cursor_pointer().line_height(`${this.row}px`)
+        .child(this.line(it.l, t, colors, target, commented, half, true))
+        .child(div().w(1).h_full().flex_none().bg(t.border))
+        .child(this.line(it.r, t, colors, target, commented, half, false));
+    }
+    const { kind, spans } = this.rows[it.i], i = it.i;
+    const on = target && i >= target.from && i <= target.to;
     if (kind === "@") {
       return h_flex().w_full().h(this.row).flex_none().items_center().cursor_pointer().bg(t.raised).border_l(2).border_color(on ? t.accent : NONE)
         .child(div().w(this.gutter + 16).flex_none()).child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(spans[0].text));
     }
+    return h_flex().w_full().h(it.height).flex_none().items_start().cursor_pointer().line_height(`${this.row}px`).child(this.line(i, t, colors, target, commented, null, false));
+  }
+
+  // One diff line: gutter, sign and code, wrapped to the width when wrap is on.
+  // `width`: a fixed width (a split side without wrap); null fills the space. A null row is the empty side of a split.
+  line(i, t, colors, target, commented, width, left) {
+    const box = (e) => width ? e.w(width).flex_none() : e.flex_1().min_w(0);
+    if (i == null) return box(div().h_full().bg(t.surface));
+    const { kind, number, spans } = this.rows[i];
+    const on = target && i >= target.from && i <= target.to, mark = commented.has(i);
     // Added and removed rows get a clear tint (stronger when targeted), a
     // colored sign column and a tinted gutter, like a GitHub diff.
     const tint = kind === "+" ? colors.added : kind === "-" ? colors.removed : null;
-    return h_flex().w_full().h(this.row).flex_none().cursor_pointer().border_l(2).border_color(on ? t.accent : mark ? t.accent + "66" : NONE)
+    const lines = this.wrap ? chunk(spans, this.cpl()) : [spans];
+    const code = (parts) => h_flex().h(this.row).items_center().whitespace_nowrap().children(parts.map((s) => s.cls ? div().text_color(colors[s.cls] ?? t.foreground).child(s.text) : div().child(s.text)));
+    return box(h_flex().h_full().items_start().border_l(left || !this.splitOn() ? 2 : 0).border_color(on ? t.accent : mark ? t.accent + "66" : NONE)
       .when(Boolean(tint), (e) => e.bg(tint + (on ? "5c" : "30")))
       .when(!tint && on, (e) => e.bg(t.selected))
-      .child(div().w(this.gutter).flex_none().text_right().pr(4).when(Boolean(tint), (e) => e.bg(tint + "26")).text_color(on ? t.foreground : tint ? t.foreground + "cc" : t.dim).child(number === undefined ? "" : String(number)))
+      .child(div().w(this.gutter).h_full().flex_none().text_right().pr(4).when(Boolean(tint), (e) => e.bg(tint + "26")).text_color(on ? t.foreground : tint ? t.foreground + "cc" : t.dim).child(number === undefined ? "" : String(number)))
       .child(div().w(16).flex_none().text_center().font_bold().text_color(tint ?? NONE).child(kind === "+" ? "+" : kind === "-" ? "−" : " "))
-      .child(h_flex().flex_1().min_w(0).whitespace_nowrap().children(spans.map((s) => s.cls ? div().text_color(colors[s.cls] ?? t.foreground).child(s.text) : div().child(s.text))));
+      .child(v_flex().flex_1().min_w(0).children(lines.map(code))));
+  }
+
+  // The row index a click on a list item means: a pair's side is chosen by where the press was.
+  rowAt(k) {
+    if (k.startsWith("r:")) return Number(k.slice(2));
+    if (!k.startsWith("p:")) return null;
+    const p = this.pairs[Number(k.slice(2))];
+    if (!p) return null;
+    const left = (this.pressX ?? 0) < (this.halfW && !this.wrap ? this.halfW : this.areaW / 2);
+    return left ? (p.l ?? p.r) : (p.r ?? p.l);
   }
 
   render(cx) {
@@ -615,6 +721,8 @@ export default class Changes extends View {
     const perFile = {};
     for (const c of this.comments) perFile[c.path] = (perFile[c.path] ?? 0) + 1;
     const button = (id, label, primary, action) => div().id(id).h(24).px(10).flex().items_center().rounded(6).bg(primary ? t.solid : t.raised).text_color(primary ? t.solid_foreground : t.foreground).text_size(12).font_medium().cursor_pointer().hover((s) => s.opacity(0.88)).on_click(action).child(label);
+    const toggle = (id, label, on, tip, action) => div().id(id).h(20).px(8).flex().items_center().rounded(5).cursor_pointer().tooltip(tip)
+      .when(on, (e) => e.bg(t.selected).text_color(t.foreground)).when(!on, (e) => e.text_color(t.dim).hover((s) => s.bg(t.hover).text_color(t.foreground))).on_click(action).child(label);
     const link = (id, label, action) => div().id(id).h(24).px(8).flex().items_center().rounded(6).text_size(12).text_color(t.dim).cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click(action).child(label);
     return v_flex().id("changes").size_full().min_h(0).relative().rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13).track_focus(this.handle)
       .on_size_change((size, cx) => { const w = this.size?.width; this.size = size; if (w !== size.width) { this.rebuild(); cx.notify(); } })
@@ -643,16 +751,27 @@ export default class Changes extends View {
             .tooltip(k ? `${k} draft comment${k > 1 ? "s" : ""} · click to comment on the whole file` : "Comment on the whole file")
             .on_click((_e, cx) => { cx.stop_propagation(); this.commentFile(f.path, cx); })
             .when(Boolean(k), (e) => e.child(String(k))).child(svg("mods/reviewer/comment.svg").size(k ? 10 : 12)))
+          // Opens the file in Neovim in its own tab (or goes to the tab already editing it).
+          .when(f.status !== "D", (e) => e.child(h_flex().id(`nvim-${f.path}`).size(18).flex_none().items_center().justify_center().rounded(4).cursor_pointer().text_color(t.muted)
+            .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Open in Neovim (new tab)")
+            .on_click((_e, cx) => { cx.stop_propagation(); this.openNvim(f.path); })
+            .child(svg("mods/reviewer/edit.svg").size(12))))
           .when(f.add > 0, (e) => e.child(div().text_size(11).text_color(t.ansi2).child(`+${f.add}`))).when(f.del > 0, (e) => e.child(div().text_size(11).text_color(t.ansi1).child(`−${f.del}`)));
       })).when(!this.files.length, (e) => e.child(div().p(8).text_color(t.dim).child(this.error || (this.loading ? "Loading changes…" : this.root ? "No uncommitted changes" : "No folder")))))
       .when(this.limited, el => el.child(div().px(12).py(4).text_size(11).text_color(t.dim).child("Showing the first 1,000 changed files")))
+      .when(Boolean(this.open), (e) => e.child(h_flex().h(28).flex_none().px(12).gap(4).items_center().border_b(1).border_color(t.border).text_size(11)
+        .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(this.open ?? ""))
+        .child(toggle("view-wrap", "Wrap", this.wrap, "Wrap long lines", (_e, cx) => this.setView({ wrap: !this.wrap }, cx)))
+        .child(toggle("view-split", "Split", this.split, this.areaW && this.areaW < SPLIT_MIN ? `Side by side (the panel needs ${SPLIT_MIN}px; it is one column until then)` : "Old and new side by side", (_e, cx) => this.setView({ split: !this.split }, cx)))))
       .child(h_flex().flex_1().min_h(0).items_stretch()
-        .child(div().flex_1().min_w(0).min_h(0).relative().font_family(codeFont()).text_size(this.fontSize)
+        .child(div().id("changes-area").flex_1().min_w(0).min_h(0).relative().font_family(codeFont()).text_size(this.fontSize)
+        .on_size_change((size, cx) => { if (Math.abs(size.width - this.areaW) >= 1) { this.areaW = size.width; this.measure(); cx.notify(); } })
+        .on_mouse_down("left", (e) => { this.pressX = e.local_position?.x ?? 0; })
         .child(div().id("changes-diff-x").size_full().overflow_x_scrollbar()
           .child(div().w_full().min_w(this.diffWidth).h_full().child(v_virtual_list("changes-diff", this.items.length, this.sizes.length ? this.sizes : this.row, (i) => this.items[i].key,
             (range) => this.items.slice(range.start, range.end).map((it) => this.item(it, t, colors, target, commented))).size_full().track_scroll(this.scroll)
-            .on_item_click((k, cx) => { if (k.startsWith("c:")) { if (k.slice(2) !== this.composer?.editing) this.editComment(k.slice(2), cx); } else this.clickRow(Number(k.slice(2)), cx); })
-            .on_item_secondary_click((k, _e, cx) => { if (!k.startsWith("r:")) return; const i = Number(k.slice(2)); const r = this.rows[i]; if (!r || r.kind === "") return; this.askAbout(r.kind === "@" ? this.rows.map((_r, j) => j).filter((j) => this.rows[j].hunk === i && this.rows[j].kind !== "") : [i], cx); }))))
+            .on_item_click((k, cx) => { if (k.startsWith("c:")) { if (k.slice(2) !== this.composer?.editing) this.editComment(k.slice(2), cx); } else { const i = this.rowAt(k); if (i != null) this.clickRow(i, cx); } })
+            .on_item_secondary_click((k, e, cx) => { if (k.startsWith("p:")) this.pressX = e.local_position?.x ?? 0; const i = this.rowAt(k); if (i == null) return; const r = this.rows[i]; if (!r || r.kind === "") return; this.askAbout(r.kind === "@" ? this.rows.map((_r, j) => j).filter((j) => this.rows[j].hunk === i && this.rows[j].kind !== "") : [i], cx); }))))
         .child(Scrollbar.vertical("changes-diff").viewport_from_layout().absolute().inset_0())
         .when(!this.open && this.files.length > 0, (e) => e.child(div().absolute().top(6).px(12).text_color(t.dim).child("Select a file to view its changes")))
         .when(canAsk && !this.composer && n === 0, (e) => e.child(div().absolute().bottom(6).right(14).px(8).py(3).rounded(6).bg(t.raised + "e0").text_size(10).text_color(t.dim).child("Click a line to comment · right-click to ask"))))
@@ -664,6 +783,16 @@ export default class Changes extends View {
       .child(h_flex().flex_none().p(10).gap(8).border_t(1).border_color(t.border)
         .child(div().id("commit-message").flex_1().min_w(0).h(32).px(10).flex().items_center().rounded(8).border_1().border_color(this.typing ? t.accent : t.border).cursor_text().on_mouse_down("left", (_e, cx) => cx.stop_propagation()).child(Input.new(this.input).h_full().text_size(12).text_color(t.foreground)))
         .child(div().id("commit").h(32).px(14).flex().items_center().rounded(8).bg(enabled ? t.solid : t.raised).text_color(enabled ? t.solid_foreground : t.dim).text_size(12).when(enabled, (e) => e.cursor_pointer()).on_click((_e, cx) => this.commit(cx)).child(this.busy ? "Committing…" : "Commit")));
+  }
+
+  // A tab named after the file that still runs nvim is reused; otherwise a new tab starts
+  // nvim in the repo, at the first changed line when the file's diff is open.
+  openNvim(path) {
+    const name = path.split("/").pop(), space = spaces().find((s) => s.active);
+    const tab = space?.tabs.find((tb) => tb.name === name && panes().some((p) => p.tab === tb.id && /vim/i.test(`${p.program?.name} ${p.title}`)));
+    if (tab) return run("tab.select", { id: tab.id });
+    const line = this.open === path ? this.rows.find((r) => r.kind === "+")?.number ?? this.rows.find((r) => r.number)?.number : null;
+    run("tab.new", { name, space: space?.id, folder: this.root, argv: ["nvim", ...(line ? [`+${line}`] : []), path] });
   }
 
   pick(path, cx) {

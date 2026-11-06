@@ -35,3 +35,6 @@ node_modules/
 .env
 .env.*
 !.env.example
+
+# Issues panel: rendered mermaid diagrams (cache)
+mods/issues/.diagrams/

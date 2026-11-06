@@ -93,7 +93,6 @@
             {
               "id": "content",
               "type": "stack",
-              "active": "main",
               "children": [
                 {
                   "id": "main",
@@ -131,7 +130,8 @@
                     "mod": "project-settings"
                   }
                 }
-              ]
+              ],
+              "active": "main"
             },
             {
               "id": "panel",
@@ -153,6 +153,13 @@
                       "type": "block",
                       "content": {
                         "mod": "reviewer"
+                      }
+                    },
+                    {
+                      "id": "issues",
+                      "type": "block",
+                      "content": {
+                        "mod": "issues"
                       }
                     }
                   ],
