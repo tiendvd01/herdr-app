@@ -106,7 +106,7 @@ export default class ProjectSettings extends View {
     this.known = "";
     this.editor = EditorState.new({ language: "bash", value: "", line_numbers: true, font_family: settings().font_family });
     this.editor.on("change", (_e, cx) => { this.msg = ""; cx.notify(); });
-    this.pEditor = EditorState.new({ language: "markdown", value: "", line_numbers: false, font_family: settings().font_family });
+    this.pEditor = EditorState.new({ language: "markdown", value: "", line_numbers: false, soft_wrap: true, font_family: settings().font_family });
     this.pEditor.on("change", (_e, cx) => { this.pMsg = ""; cx.notify(); });
     this.pSaved = null; // the project's prompt file on disk (null: none, the default applies)
     this.pMsg = "";
