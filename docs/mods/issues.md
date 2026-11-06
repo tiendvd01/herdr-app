@@ -14,7 +14,7 @@ Panel GitHub issues ở cột phải (cùng stack `panel-body` với Files và C
 ## Tóm tắt bằng AI
 
 - Chỉ chạy khi bấm nút **Summarize** / **Re-summarize** ở thanh trên của chi tiết issue; không tự chạy.
-- Gọi `claude -p --model haiku` với `--tools ""`, `--no-session-persistence`, `--strict-mcp-config`, `--setting-sources ""`, `--disable-slash-commands` (rẻ, không đụng session hay cấu hình của bạn). Prompt hệ thống yêu cầu tiếng Việt và chú thích nghĩa cho mọi từ tiếng Nhật.
+- Gọi `claude -p --model haiku` với `--tools ""`, `--no-session-persistence`, `--strict-mcp-config`, `--setting-sources ""`, `--disable-slash-commands` (rẻ, không đụng session hay cấu hình của bạn). Prompt hệ thống mặc định yêu cầu tiếng Việt và chú thích nghĩa cho mọi từ tiếng Nhật; có thể thay bằng prompt riêng của từng project ở Project Settings > Summary prompt (xem `docs/mods/project-settings.md`).
 - `exec` giới hạn 30 giây nên claude chạy thành job tách rời (`nohup`); mod poll file `.done` mỗi giây, tối đa 180 giây.
 - **Lưu ngoài project**: `~/.herdr/issue-summaries/summaries.json` (khóa `owner/repo#n` → `text`, `version`, `model`, `at`). Thư mục `jobs/` chứa file tạm của job đang chạy.
 - **Phiên bản để phát hiện thay đổi**: `version` = hash của body + `id:body` từng comment (bỏ comment bị ẩn). Khi render, nếu hash hiện tại khác `version` đã lưu thì tiêu đề thẻ ghi "⚠ OUTDATED (issue changed since)". Không gắn nhãn trong lúc đang fetch lại issue. Đổi label/assignee/state không làm outdated.

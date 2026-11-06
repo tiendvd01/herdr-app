@@ -243,6 +243,20 @@ export default class Issues extends View {
   // ---------- summary ----------
   // Only on a click. claude runs as a detached job (exec has a 30 s limit) whose files sit in
   // SUMS()/jobs; this polls for its exit code, then saves the text with the version it was made from.
+  // The system prompt: the project's own (Project Settings > Summary prompt) when the current space's folder is in a
+  // git project that has one, else the built-in SUM_SYSTEM.
+  async systemPrompt() {
+    try {
+      const f = this.folder();
+      if (!f || this.space()?.machine) return SUM_SYSTEM;
+      const r = await exec("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: f });
+      if (r.code !== 0) return SUM_SYSTEM;
+      const common = r.stdout.trim(), main = common.endsWith("/.git") ? common.slice(0, -5) : common;
+      const slug = main.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "");
+      const text = await readTextFile(`${home()}/.config/herdr-app/projects/${slug}/summary-prompt.md`).catch(() => null);
+      return text?.trim() ? text : SUM_SYSTEM;
+    } catch { return SUM_SYSTEM; }
+  }
   summarize(cx) {
     const s = this.st(), d = s.detail; if (!s.open || !d) return;
     const key = keyOf(s.open.repo, s.open.number);
@@ -255,7 +269,7 @@ export default class Issues extends View {
       try {
         await exec("mkdir", ["-p", `${dir}/jobs`]);
         await exec("rm", ["-f", `${job}.out`, `${job}.err`, `${job}.done`]);
-        for (const [f, text] of [[`${job}.in`, sourceOf(d)], [`${dir}/system.txt`, SUM_SYSTEM]])
+        for (const [f, text] of [[`${job}.in`, sourceOf(d)], [`${dir}/system.txt`, await this.systemPrompt()]])
           await writeTextFile(f, text, await readTextFile(f).catch(() => null));
         // A login + interactive zsh finds claude on PATH; the job survives this task.
         await exec("zsh", ["-ilc", `cd "$1" && export J="$1/jobs/${hash(key)}" S="$1/system.txt"; nohup sh -c 'claude -p --model ${SUM_MODEL} --tools "" --no-session-persistence --strict-mcp-config --setting-sources "" --disable-slash-commands --output-format json --system-prompt "$(cat "$S")" < "$J.in" > "$J.out" 2> "$J.err"; echo $? > "$J.done"' >/dev/null 2>&1 &`, "zsh", dir]);
