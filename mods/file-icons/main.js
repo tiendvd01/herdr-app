@@ -6,7 +6,7 @@
 // Local changes: an "Edit in Neovim" button on file rows and in the preview header, and a Preview/Source
 // switch for Markdown files.
 import { View, div, svg, image } from "gpui-kit";
-import { v_flex, h_flex, Editor, EditorState, TextView } from "gpui-base";
+import { v_flex, h_flex, Editor, EditorState, TextView, InputState, Input } from "gpui-base";
 import { spaces, panes, focused, exec, readTextFile, watchFolder, run, theme, settings, window } from "herdr";
 import ICONS from "./icons.js";
 import { iconButton, chip } from "./panel-ui.js";
@@ -59,7 +59,10 @@ async function directory(path, on) {
 
 export default class Files extends View {
   init(_props, cx) {
-    this.entries = new Map(); this.folders = new Set(); this.pending = new Set(); this.marks = {};
+    this.entries = new Map(); this.folders = new Set(); this.pending = new Set(); this.marks = {}; this.ignored = new Set();
+    this.query = ""; this.all = null; this.allLoading = false;
+    this.search = InputState.new({ placeholder: "Search files…" });
+    this.search.on("change", (_e, cx) => { this.query = this.search.value().trim(); if (this.query) this.loadAll(cx); cx.notify(); });
     this.refresh(cx);
     cx.timer.every(10000, cx => this.refresh(cx));
   }
@@ -87,7 +90,8 @@ export default class Files extends View {
     const { cwd, on } = location(), context = key();
     if (context !== this.context) {
       this.context = context; this.root = cwd; this.on = on; this.entries = new Map(); this.folders = new Set();
-      this.pending = new Set(); this.marks = {}; this.show(null); this.watched = null; this.error = null; this.limited = false;
+      this.pending = new Set(); this.marks = {}; this.ignored = new Set(); this.show(null); this.watched = null; this.error = null; this.limited = false;
+      this.all = null; this.allLoading = false;
     }
     if (!cwd) return;
     this.loading = true;
@@ -105,10 +109,55 @@ export default class Files extends View {
             marks[`${top.stdout.trim()}/${entry.slice(3)}`] = xy === "??" || xy.includes("A") ? "A" : xy.includes("U") ? "U" : xy.includes("D") ? "D" : "M";
           }
         }
+        // Ignored paths (relative to the folder; whole directories collapsed to one entry).
+        const ignored = new Set();
+        if (top?.code === 0) {
+          const ig = await exec("git", ["--no-optional-locks", "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"], { cwd, on }).catch(() => null);
+          if (ig?.code === 0) for (const p of ig.stdout.split("\0").filter(Boolean).slice(0, TOTAL)) ignored.add(p.replace(/\/$/, ""));
+        }
         if (key() !== context) return;
-        this.marks = marks; this.error = null; this.watch(cwd, cx);
+        this.ignored = ignored; this.marks = marks; this.error = null; this.watch(cwd, cx);
       } catch (e) { if (key() === context) this.error = String(e); }
       finally { this.loading = false; cx.notify(); }
+    });
+  }
+
+  // Every file under the folder (tracked + untracked, honoring .gitignore; plain find outside git), loaded when searching.
+  loadAll(cx, force = false) {
+    if ((this.all && !force) || this.allLoading || !this.root) return;
+    this.allLoading = true;
+    const context = this.context, root = this.root, on = this.on;
+    cx.spawn(async cx => {
+      try {
+        let r = await exec("git", ["ls-files", "-z", "--cached", "--others", "--exclude-standard"], { cwd: root, on }).catch(() => null);
+        if (r?.code !== 0) r = await exec("find", [".", "-type", "f", "-not", "-path", "*/.git/*", "-not", "-path", "*/node_modules/*", "-print0"], { cwd: root, on });
+        if (key() !== context) return;
+        this.all = r.stdout.split("\0").filter(Boolean).map(f => f.replace(/^\.\//, "")).slice(0, 100000);
+      } catch { if (key() === context) this.all = []; }
+      finally { this.allLoading = false; cx.notify(); }
+    });
+  }
+
+  matches() {
+    const words = this.query.toLowerCase().split(/\s+/).filter(Boolean), out = [];
+    for (const f of this.all ?? []) {
+      const l = f.toLowerCase();
+      if (words.every(w => l.includes(w))) { out.push(f); if (out.length >= 200) break; }
+    }
+    return out;
+  }
+
+  results(t, dark) {
+    const list = this.matches();
+    if (!list.length) return [div().p(8).text_size(12).text_color(t.dim).child(this.all ? "No matching files" : "Searching…")];
+    return list.map(path => {
+      const name = path.split("/").pop(), dir = path.slice(0, path.length - name.length - 1);
+      return h_flex().id(`found-${path}`).h(28).flex_none().px(8).gap(7).items_center().rounded(7).cursor_pointer().hover(s => s.bg(t.hover))
+        .on_click((_e, cx) => { this.show(path, cx); })
+        .child(image(icon(path, false, false, dark)).size(16).flex_none())
+        .child(div().flex_none().max_w(200).truncate().child(name))
+        .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(dir))
+        .child(this.editButton(path, true));
     });
   }
 
@@ -164,12 +213,20 @@ export default class Files extends View {
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation());
   }
 
+  isIgnored(path) {
+    if (!this.ignored?.size) return false;
+    const parts = path.split("/");
+    for (let i = 1; i <= parts.length; i++) if (this.ignored.has(parts.slice(0, i).join("/"))) return true;
+    return false;
+  }
+
   rows(prefix, depth, out, t, dark) {
     if (out.length >= TOTAL || depth > 40) return out;
     for (const entry of this.entries.get(prefix) ?? []) {
       if (out.length >= TOTAL) break;
       const path = prefix ? `${prefix}/${entry.name}` : entry.name, open = this.folders.has(path), mark = this.marks[`${this.root}/${path}`];
       out.push(h_flex().id(`file-${path}`).h(28).flex_none().pl(8 + depth * 18).pr(8).gap(7).items_center().rounded(7).cursor_pointer().hover(s => s.bg(t.hover))
+        .when(this.isIgnored(path), el => el.opacity(0.45))
         .on_click((_e, cx) => entry.dir ? this.toggle(path, cx) : this.show(path, cx))
         .child(entry.dir ? svg(`${DIR}/chevron-${open ? "down" : "right"}.svg`).size(12).flex_none().text_color(t.dim) : div().w(12).flex_none())
         .child(image(icon(path, entry.dir, open, dark)).size(16).flex_none())
@@ -195,7 +252,10 @@ export default class Files extends View {
         .child(h_flex().flex_1().min_w(0).gap(6).justify_end().items_center().text_size(12).text_color(t.dim)
           .when(Boolean(this.file), el => el.child(image(icon(this.file, false, false, dark)).size(14).flex_none()))
           .child(div().min_w(0).truncate().child(this.file ?? this.root?.split(/[\\/]/).pop() ?? ""))))
-      .when(!this.file, el => el.child(v_flex().id("files-tree").flex_1().min_h(0).overflow_y_scrollbar().p(6).children(this.rows("", 0, [], t, dark))
+      .when(!this.file, el => el.child(div().id("files-search").flex_none().mx(8).mt(8).h(30).px(10).flex().items_center().rounded(8).border_1().border_color(t.border).cursor_text()
+        .child(Input.new(this.search).h_full().w_full().text_size(12).text_color(t.foreground))))
+      .when(!this.file && Boolean(this.query), el => el.child(v_flex().id("files-found").flex_1().min_h(0).overflow_y_scrollbar().p(6).children(this.results(t, dark))))
+      .when(!this.file && !this.query, el => el.child(v_flex().id("files-tree").flex_1().min_h(0).overflow_y_scrollbar().p(6).children(this.rows("", 0, [], t, dark))
         .when(Boolean(this.error) || !this.entries.get("")?.length, el => el.child(div().p(8).text_size(12).text_color(t.dim).child(this.error || (this.loading ? "Loading files…" : this.root ? "No files" : "No folder"))))
         .when(this.limited, el => el.child(div().p(8).text_size(11).text_color(t.dim).child("File list limited to 500 entries per folder and 5,000 total")))))
       .when(Boolean(this.file), el => el.child(this.code && this.md !== null && this.mdPreview
