@@ -598,7 +598,7 @@ export default class Changes extends View {
           const r = await exec("git", args, { cwd: root, on });
           if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim());
         }
-        if (key() === context) { this.message = ""; this.input.set_value(""); }
+        if (key() === context) { this.message = ""; this.input.set_value(""); this.setView({ showDiff: false }, cx); }
       } catch (e) { if (key() === context) this.note_ = `Commit failed: ${e}`; }
       finally { this.busy = false; this.refresh(cx); cx.notify(); }
     });
@@ -772,13 +772,13 @@ export default class Changes extends View {
       })).when(!this.files.length, (e) => e.child(div().p(8).text_color(t.dim).child(this.error || (this.loading ? "Loading changes…" : this.root ? "No uncommitted changes" : "No folder")))))
       .when(this.limited, el => el.child(div().px(12).py(4).text_size(11).text_color(t.dim).child("Showing the first 1,000 changed files")))
       ;
-    const bar = h_flex().h(28).flex_none().px(8).gap(4).items_center().border_t(1).border_b(this.showDiff ? 1 : 0).border_color(t.border).text_size(11)
+    const mkBar = () => h_flex().h(28).flex_none().px(8).gap(4).items_center().border_t(1).border_b(this.showDiff ? 1 : 0).border_color(t.border).text_size(11)
         .child(iconButton("changes-toggle", this.showDiff ? "chevron-down" : "chevron-right", this.showDiff ? "Collapse the changes section" : "Expand the changes section", (_e, cx) => this.setView({ showDiff: !this.showDiff }, cx)))
         .child(div().text_size(12).font_semibold().child("Changes"))
         .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(this.open ?? ""))
         .when(this.showDiff, (e) => e.child(chip("view-wrap", "Wrap", this.wrap, (_e, cx) => this.setView({ wrap: !this.wrap }, cx), { tip: "Wrap long lines" }))
           .child(chip("view-split", "Split", this.split, (_e, cx) => this.toggleSplit(cx), { tip: this.areaW && this.areaW < SPLIT_MIN ? `Side by side (the panel needs ${SPLIT_MIN}px; it is one column until then)` : "Old and new side by side" })));
-    const diffSec = v_flex().size_full().min_h(0).child(bar)
+    const mkDiff = () => v_flex().size_full().min_h(0).child(mkBar())
       .child(h_flex().flex_1().min_h(0).items_stretch()
         .child(div().id("changes-area").flex_1().min_w(0).min_h(0).relative().font_family(codeFont()).text_size(this.fontSize)
         .on_size_change((size, cx) => { if (Math.abs(size.width - this.areaW) >= 1) { this.areaW = size.width; this.measure(); cx.notify(); } })
@@ -812,8 +812,8 @@ export default class Changes extends View {
         .when(n > 0, (e) => e.child(textButton("review-discard", "Discard", (_e, cx) => this.setComments([], cx))).child(button("review-submit", `Submit review · ${n}`, (_e, cx) => this.submit(cx), { primary: true })))
         .when(n === 0 && canAsk, (e) => e.child(button("ask", "Ask about diff", (_e, cx) => this.askAbout(null, cx)))))
       .child(this.showDiff
-        ? v_resizable("changes-split").flex_1().min_h(0).child(resizable_panel().size(220).size_range(60).child(listSec)).child(resizable_panel().size_range(120).child(diffSec))
-        : v_flex().flex_1().min_h(0).child(listSec).child(bar))
+        ? v_resizable("changes-split").flex_1().min_h(0).child(resizable_panel().size(220).size_range(60).child(listSec)).child(resizable_panel().size_range(120).child(mkDiff()))
+        : v_flex().flex_1().min_h(0).child(listSec).child(mkBar()))
       .when(Boolean(this.note_), (e) => e.child(div().px(10).pb(8).text_size(11).text_color(t.ansi1).child(this.note_)))
       .child(h_flex().flex_none().p(10).gap(8).border_t(1).border_color(t.border)
         .child(div().id("commit-message").flex_1().min_w(0).h(32).px(10).flex().items_center().rounded(8).border_1().border_color(this.typing ? t.accent : t.border).cursor_text().on_mouse_down("left", (_e, cx) => cx.stop_propagation()).child(Input.new(this.input).h_full().text_size(12).text_color(t.foreground)))
@@ -833,6 +833,7 @@ export default class Changes extends View {
   pick(path, cx) {
     this.open = this.open === path ? null : path; this.setLines([]); this.note_ = null;
     this.closed = !this.open;
+    if (this.open && !this.showDiff) this.setView({ showDiff: true }, cx);
     const context = this.context;
     if (this.open) cx.spawn(async (cx) => {
       try { await this.load(path, context); }

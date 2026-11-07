@@ -32,3 +32,4 @@ Ghi shared `reviewer.open = { id, at: Date.now(), path (tuyệt đối), on (má
 - Các lệnh git đọc tự động dùng `--no-optional-locks`, `core.fsmonitor=false`, `diff.autoRefreshIndex=false` để không giữ `index.lock` mà commit của agent có thể cần. Các thao tác bấm chủ động (như commit) chạy không cờ này.
 - Tự làm mới khi file đổi (`watchFolder`). Repo ở máy khác dùng tham số `on`.
 - Các file: `main.js` (panel), `dialog.js` (hộp thoại gửi), `ask.js` (soạn tin nhắn cho agent), `highlight.js`, `palette.js`.
+- Commit xong từ ô Commit thì section Changes (phần diff) tự thu lại; bấm mũi tên cạnh tiêu đề "Changes" hoặc chọn một file để mở lại.
