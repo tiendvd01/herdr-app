@@ -1,6 +1,6 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, v_flex, HoverCard } from "gpui-base";
-import { spaces, agents, theme, run, window, keys, exec, setShared, notify, openOverlay, shared } from "herdr";
+import { spaces, agents, theme, run, window, keys, exec, setShared, openOverlay, shared } from "herdr";
 import { collect } from "./procs.js";
 import { checkPostScripts } from "./postscripts.js";
 import { spaceFolder } from "./space-folder.js";
@@ -34,13 +34,12 @@ export default class WorkspaceStatus extends View {
     this.last = 0;
     cx.timer.every(120000, (cx) => this.refresh(cx, true));
     this.refresh(cx, true);
-    this.prev = new Map();
     cx.timer.every(4000, (cx) => this.pollProcs(cx));
     this.pollProcs(cx);
     // The Sessions dialog's refresh button bumps shared "procs.refresh"; poll again right away.
     this.seenRefresh = shared("procs.refresh");
     cx.timer.every(500, (cx) => { const r = shared("procs.refresh"); if (r !== this.seenRefresh) { this.seenRefresh = r; this.pollProcs(cx); } });
-    // The branch shown is the one of the space's fixed folder, the folder the
+    // The branch shown is the one of the space's folder, the folder the
     // branch-switch popup acts on. Re-read every 3s, and right after a switch.
     this.branch = null;
     this.seenSwitch = shared("branch.switched");
@@ -74,16 +73,6 @@ export default class WorkspaceStatus extends View {
     cx.spawn(async (cx) => {
       try {
         const d = await collect(exec);
-        const now = new Map();
-        for (const se of d.sessions) for (const it of se.items) now.set(it.pid, { it, se });
-        // A task that ran for a while and is gone: tell the user it finished.
-        const killed = shared("procs.killed") ?? [];
-        for (const [pid, { it, se }] of this.prev) {
-          if (!now.has(pid) && it.age >= 20 && !killed.includes(pid))
-            notify({ title: "Process finished", body: `${it.cmd}\n${se.title} · ${se.where}`, level: "success",
-              action: { name: "pane.focus", args: { pane: se.pane } } });
-        }
-        this.prev = now;
         setShared("procs", d);
       } catch (e) {
         console.log("procs failed", String(e?.message ?? e));

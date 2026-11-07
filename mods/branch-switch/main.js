@@ -1,5 +1,5 @@
 // Switch the active space's branch. Opened as a popup from the branch in the
-// status bar (status-usage). Works on the space's fixed folder
+// status bar (status-usage). Works on the space's folder
 // (space-folder.js), the same one the panels show. Type to filter, ↑/↓ and
 // Enter to switch; a name that matches nothing creates that branch from HEAD.
 // A remote-only branch is checked out as a local tracking branch.

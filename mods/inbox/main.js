@@ -2,7 +2,7 @@
 // review, new comments, a red CI or a conflict. Each entry goes where it's about: an agent to its
 // pane, a PR to Pull requests (pr-flow) open on that PR. One entry per agent and per PR, updated in place.
 // Reads GitHub only; the PR code (gh, status) is pr-flow's.
-import { View, div, svg } from "gpui-kit";
+import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { agents, spaces, run, theme, exec, notify, setShared, nextCommand, layout } from "herdr";
 import { createGh, parsePrUrl } from "./gh.js";
@@ -14,7 +14,7 @@ const MOD = "inbox";
 const PR_POLL_MS = 120_000; // each open PR, at most this often
 const LIST_MS = 300_000; // your open PRs, re-listed
 const KEEP = 150;
-const DONE_KEEP_MS = 7 * 86_400_000;
+const DONE_KEEP_MS = 7 * 86_400_000; // done entries go on their own after this
 const CI_SETTINGS = { ciWaitMs: 120_000, aiChecks: [] };
 
 const icon = (name, size, color) => svg(`mods/${MOD}/${name}.svg`).size(size).flex_none().text_color(color);
@@ -42,27 +42,37 @@ function prEvents(old, now, me) {
   for (const [login, r] of Object.entries(now.reviews)) {
     if (me.includes(login) || old.reviews[login] === r) continue;
     const state = r.split("@")[0];
-    if (state === "CHANGES_REQUESTED") out.push({ text: `${login} requested changes`, tone: "bad" });
-    else if (state === "APPROVED") out.push({ text: `${login} approved`, tone: "ok" });
-    else if (state === "COMMENTED") out.push({ text: `${login} reviewed`, tone: "warn" });
+    if (state === "CHANGES_REQUESTED") out.push({ text: `${login} requested changes`, badge: "changes" });
+    else if (state === "APPROVED") out.push({ text: `${login} approved`, badge: "approved" });
+    else if (state === "COMMENTED") out.push({ text: `${login} reviewed`, badge: "comment" });
   }
   if (now.comments > old.comments) {
     const n = now.comments - old.comments;
-    out.push({ text: `${n} new comment${n > 1 ? "s" : ""} · ${now.open} unresolved`, tone: "warn" });
+    out.push({ text: `${n} new comment${n > 1 ? "s" : ""} · ${now.open} unresolved`, badge: "comment" });
   }
-  if (now.ci === "failed" && old.ci !== "failed") out.push({ text: `CI failed: ${now.failed.join(", ") || "?"}`, tone: "bad" });
-  if (now.conflict && !old.conflict) out.push({ text: "Conflicts with base", tone: "bad" });
+  if (now.ci === "failed" && old.ci !== "failed") out.push({ text: `CI failed: ${now.failed.join(", ") || "?"}`, badge: "ci" });
+  if (now.conflict && !old.conflict) out.push({ text: "Conflicts with base", badge: "conflict" });
   return out;
 }
 
+// Each PR event's mark: a small glyph and how bad it is. The entry's corner badge is its worst event's.
+const BADGE = {
+  changes: { icon: "cross", tone: "bad" },
+  ci: { icon: "cross", tone: "bad" },
+  conflict: { icon: "cross", tone: "bad" },
+  comment: { icon: "comment", tone: "warn" },
+  approved: { icon: "check", tone: "ok" },
+};
 const TONE_RANK = { bad: 3, warn: 2, ok: 1 };
+// Green for approved, as Pull requests (pr-flow) draws it; the theme's "done" is often blue.
+const toneColor = (t, tone) => (tone === "ok" ? t.ansi2 ?? t.done : t[{ bad: "blocked", warn: "working" }[tone]]) ?? t.dim;
 
 export default class Inbox extends View {
   init(_props, cx) {
     this.items = load("items", []);
+    this.showDone = false;
     this.prSnap = load("prs", {}); // url -> snapshot (see snapshot())
     this.prev = null; // address -> status, from the last render
-    this.showDone = false;
     this.hovered = null;
     this.gh = createGh(exec);
     this.isGithubHost = githubHostChecker(exec);
@@ -75,12 +85,12 @@ export default class Inbox extends View {
     this.pollPrs(cx);
     cx.timer.every(30_000, (cx) => this.pollPrs(cx));
     cx.timer.every(60_000, (cx) => cx.notify()); // "5m" moves on
-    // "inbox.open-latest" (the PR toast's click), "inbox.read-all", for keys.json too.
+    // "inbox.open-latest" (the PR toast's click), "inbox.done-all", for keys.json too.
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
         if (c === "open-latest") { const it = this.items.find((x) => !x.done); if (it) this.open(it, cx); }
-        else if (c === "read-all") this.readAll();
+        else if (c === "done-all") this.doneAll();
         cx.notify();
       }
     });
@@ -105,8 +115,24 @@ export default class Inbox extends View {
     return true;
   }
 
-  readAll() {
-    for (const it of this.items) it.read = true;
+  // Done: out of the way, into the folded Done group. Removing (from Done) drops it for good.
+  markDone(key) {
+    return this.patch(key, { done: true, read: true });
+  }
+
+  remove(key) {
+    const before = this.items.length;
+    this.items = this.items.filter((x) => x.key !== key);
+    return this.items.length !== before;
+  }
+
+  doneAll() {
+    for (const it of this.items) Object.assign(it, { done: true, read: true });
+    this.save();
+  }
+
+  clearDone() {
+    this.items = this.items.filter((x) => !x.done);
     this.save();
   }
 
@@ -122,19 +148,17 @@ export default class Inbox extends View {
       const name = clean(a.title) && clean(a.title) !== a.program?.name ? clean(a.title) : a.tab_name;
       const where = [a.space_name, a.program?.name].filter(Boolean).join(" · ");
       const target = { kind: "agent", address: a.address, pane: a.pane };
+      const pic = a.program?.icon ? { icon: a.program.icon, tint: a.program.tint } : null;
       if (!first && a.status === "blocked" && was !== "blocked") {
-        this.upsert(key, { kind: "attention", title: name, body: `Needs you · ${where}`, tone: "bad", target });
+        this.upsert(key, { kind: "attention", title: name, body: `Needs you · ${where}`, tone: "bad", pic, target });
         dirty = true;
       } else if (!first && was !== undefined && a.status === "done" && was !== "done") {
-        this.upsert(key, { kind: "done", title: name, body: `Finished · ${where}`, tone: "ok", target });
+        this.upsert(key, { kind: "done", title: name, body: `Finished · ${where}`, tone: "ok", pic, target });
         dirty = true;
       }
       // Looking at it reads it; it going back to work settles a "needs you".
       if (a.focused) dirty = this.patch(key, { read: true }) || dirty;
-      if (a.status === "working") {
-        const it = this.items.find((x) => x.key === key);
-        if (it?.kind === "attention" && !it.done) dirty = this.patch(key, { done: true, read: true }) || dirty;
-      }
+      if (a.status === "working" && this.items.find((x) => x.key === key)?.kind === "attention") dirty = this.markDone(key) || dirty;
     }
     if (dirty) this.save();
   }
@@ -173,11 +197,11 @@ export default class Inbox extends View {
           }));
           for (const { url, pr, extra } of results) if (pr && this.takePr(url, pr, extra)) changed = true;
         }
-        // Gone from your open list: merged or closed. Its entry is settled, its snapshot dropped.
+        // Gone from your open list: merged or closed. Its entry is done, its snapshot dropped.
         for (const url of Object.keys(this.prSnap)) {
           if (this.urls.includes(url) || this.listedAt < 0) continue;
           delete this.prSnap[url];
-          changed = this.patch(`pr:${url}`, { done: true }) || changed;
+          changed = this.markDone(`pr:${url}`) || changed;
         }
         localStorage.setItem("prs", JSON.stringify(this.prSnap));
       } finally {
@@ -196,11 +220,12 @@ export default class Inbox extends View {
     if (!old) return false; // first look: what's there already isn't news
     const events = prEvents(old, now, this.me ?? []);
     if (!events.length) return false;
-    const tone = events.map((e) => e.tone).sort((a, b) => TONE_RANK[b] - TONE_RANK[a])[0];
+    const badge = events.map((e) => e.badge).sort((a, b) => TONE_RANK[BADGE[b].tone] - TONE_RANK[BADGE[a].tone])[0];
+    const tone = BADGE[badge].tone;
     const repo = parsePrUrl(url)?.repo ?? "";
     const title = `#${now.number} ${now.title}`;
     const body = events.map((e) => e.text).join(" · ");
-    this.upsert(`pr:${url}`, { kind: "pr", title, body, sub: repo, tone, target: { kind: "pr", url, repo } });
+    this.upsert(`pr:${url}`, { kind: "pr", title, body, events, badge, sub: repo, tone, target: { kind: "pr", url, repo } });
     notify({ title, body, level: tone === "bad" ? "error" : tone === "warn" ? "warning" : "success", action: { name: "inbox.open-latest" } });
     return true;
   }
@@ -247,18 +272,37 @@ export default class Inbox extends View {
     });
   }
 
-  dismiss(it) {
-    this.patch(it.key, { done: true, read: true });
-    this.save();
+  // ---------- drawing ----------
+  // What it is (a PR, or the agent's own program icon), with how it stands in the corner.
+  mark(t, it) {
+    let base;
+    if (it.kind === "pr") base = icon("pull-request", 14, it.done ? t.dim : t.foreground);
+    else if (it.pic?.icon) base = it.pic.tint ? svg(it.pic.icon).size(14).flex_none().text_color(t.foreground) : image(it.pic.icon).w(14).h(14).flex_none();
+    else base = icon("terminal", 14, t.muted);
+    const ring = (el) => el.absolute().right(-4).bottom(-4).size(10).rounded(5).border(1.5).border_color(t.chrome).flex().items_center().justify_center();
+    let corner;
+    if (it.kind === "attention") corner = ring(div()).bg(t.blocked).text_size(7).font_bold().text_color(t.chrome).child("!");
+    else if (it.kind === "done") corner = ring(div()).bg(t.done);
+    else {
+      // Entries from before badges: guess from the tone.
+      const b = BADGE[it.badge] ?? { icon: it.tone === "ok" ? "check" : it.tone === "bad" ? "cross" : "comment", tone: it.tone };
+      corner = ring(div()).bg(toneColor(t, b.tone)).child(icon(b.icon, 6, t.chrome));
+    }
+    return div().relative().size(16).flex_none().flex().items_center().justify_center().child(base).child(corner);
   }
 
-  // ---------- drawing ----------
-  mark(t, it) {
-    const color = t[{ bad: "blocked", warn: "working", ok: "done" }[it.tone]] ?? t.dim;
-    if (it.kind === "attention") return div().size(16).flex_none().rounded(4).bg(t.blocked + "26").text_size(11).font_bold().text_color(t.blocked).flex().items_center().justify_center().child("!");
-    if (it.kind === "done") return h_flex().size(16).flex_none().items_center().justify_center().child(div().size(7).rounded(4).bg(t.done));
-    const name = it.tone === "ok" ? "check" : it.tone === "bad" && /CI|conflict/.test(it.body) ? "cross" : it.tone === "warn" || it.tone === "bad" ? "comment" : "merge";
-    return h_flex().size(16).flex_none().items_center().justify_center().child(icon(name, 13, color));
+  // The second line: every event with its own small mark, so an approve next to new comments shows both.
+  detail(t, it) {
+    const line = div().flex_none().truncate().text_size(11).text_color(t.dim);
+    if (!it.events?.length) return line.child([it.body, it.sub].filter(Boolean).join(" · "));
+    return h_flex().min_w(0).gap(8).items_center().overflow_hidden()
+      .children(it.events.map((e) => {
+        const b = BADGE[e.badge];
+        return h_flex().flex_none().gap(3).items_center()
+          .when(Boolean(b), (el) => el.child(icon(b.icon, 10, toneColor(t, b.tone))))
+          .child(div().text_size(11).text_color(t.dim).child(e.text));
+      }))
+      .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(it.sub ?? ""));
   }
 
   row(t, it, now) {
@@ -280,15 +324,19 @@ export default class Inbox extends View {
         cx.notify();
       })
       .on_click((_e, cx) => { this.open(it, cx); cx.notify(); })
-      .child(div().pt(1).child(this.mark(t, it)))
+      .child(div().pt(1).pr(2).child(this.mark(t, it)))
       .child(v_flex().flex_1().min_w(0).gap(1)
         .child(div().truncate().text_size(12.5).when(unread, (el) => el.font_semibold()).text_color(it.done ? t.dim : unread ? t.foreground : t.muted).child(it.title || "?"))
-        .child(div().truncate().text_size(11).text_color(t.dim).child([it.body, it.sub].filter(Boolean).join(" · "))))
+        .child(this.detail(t, it)))
       .child(v_flex().flex_none().items_end().gap(3)
-        .child(hovered && !it.done
-          ? div().id(`x-${it.key}`).p(1).rounded(4).text_color(t.dim).hover((s) => s.bg(t.raised).text_color(t.foreground)).tooltip("Done")
-            .on_click((_e, cx) => { cx.stop_propagation(); this.dismiss(it); this.hovered = null; cx.notify(); })
-            .child(icon("x", 12, t.dim))
+        .child(hovered
+          ? (it.done
+            ? div().id(`rm-${it.key}`).p(1).rounded(4).text_color(t.dim).hover((s) => s.bg(t.raised).text_color(t.foreground)).tooltip("Remove")
+              .on_click((_e, cx) => { cx.stop_propagation(); this.remove(it.key); this.save(); this.hovered = null; cx.notify(); })
+              .child(icon("x", 12, t.dim))
+            : div().id(`mark-${it.key}`).p(1).rounded(4).text_color(t.dim).hover((s) => s.bg(t.raised).text_color(t.foreground)).tooltip("Mark as done")
+              .on_click((_e, cx) => { cx.stop_propagation(); this.markDone(it.key); this.save(); this.hovered = null; cx.notify(); })
+              .child(icon("check", 12, t.dim)))
           : div().text_size(10.5).text_color(t.dim).child(ago(now - it.at)))
         .when(unread, (el) => el.child(div().size(6).rounded(3).bg(t.accent ?? t.working))));
   }
@@ -302,7 +350,18 @@ export default class Inbox extends View {
     const unread = live.filter((x) => !x.read).length;
 
     if (narrow()) {
-      return v_flex().size_full().min_h(0).bg(t.chrome).border_t(1).border_color(t.border).items_center().pt(8)
+      const doneHeader = h_flex().id("in-done").px(8).pt(8).h(28).flex_none().gap(6).items_center().text_size(11).font_medium().text_color(t.dim).cursor_pointer()
+      .hover((s) => s.text_color(t.foreground))
+      .on_click((_e, cx) => { this.showDone = !this.showDone; cx.notify(); })
+      .child(icon(this.showDone ? "chevron-down" : "chevron-right", 11, t.dim))
+      .child(div().child("Done"))
+      .child(div().child(String(done.length)))
+      .child(div().flex_1())
+      .when(this.showDone, (el) => el.child(div().id("in-clear").px(4).rounded(4).text_size(10.5).hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Remove every done entry")
+        .on_click((_e, cx) => { cx.stop_propagation(); this.clearDone(); cx.notify(); })
+        .child("Clear")));
+
+    return v_flex().size_full().min_h(0).bg(t.chrome).border_t(1).border_color(t.border).items_center().pt(8)
         .child(div().id("inbox-rail").relative().p(4).rounded(6).hover((s) => s.bg(t.hover)).tooltip(`Inbox · ${unread} unread`)
           .on_click((_e, cx) => { const it = live[0]; if (it) this.open(it, cx); })
           .child(icon("inbox", 16, unread ? t.foreground : t.dim))
@@ -313,17 +372,20 @@ export default class Inbox extends View {
       .child(div().text_size(11.5).font_medium().text_color(t.dim).child("Inbox"))
       .when(unread > 0, (el) => el.child(div().px(5).h(15).rounded(8).bg(t.blocked + "26").text_size(10).font_semibold().text_color(t.blocked).flex().items_center().child(String(unread))))
       .child(div().flex_1())
-      .when(unread > 0, (el) => el.child(div().id("in-readall").text_color(t.dim).hover((s) => s.text_color(t.foreground)).tooltip("Mark all read")
-        .on_click((_e, cx) => { this.readAll(); cx.notify(); })
+      .when(live.length > 0, (el) => el.child(div().id("in-readall").text_color(t.dim).hover((s) => s.text_color(t.foreground)).tooltip("Mark all as done")
+        .on_click((_e, cx) => { this.doneAll(); cx.notify(); })
         .child(icon("check", 14, t.dim))));
 
     const doneHeader = h_flex().id("in-done").px(8).pt(8).h(28).flex_none().gap(6).items_center().text_size(11).font_medium().text_color(t.dim).cursor_pointer()
       .hover((s) => s.text_color(t.foreground))
       .on_click((_e, cx) => { this.showDone = !this.showDone; cx.notify(); })
+      .child(icon(this.showDone ? "chevron-down" : "chevron-right", 11, t.dim))
       .child(div().child("Done"))
       .child(div().child(String(done.length)))
       .child(div().flex_1())
-      .child(icon(this.showDone ? "chevron-down" : "chevron-right", 11, t.dim));
+      .when(this.showDone, (el) => el.child(div().id("in-clear").px(4).rounded(4).text_size(10.5).hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Remove every done entry")
+        .on_click((_e, cx) => { cx.stop_propagation(); this.clearDone(); cx.notify(); })
+        .child("Clear")));
 
     return v_flex().size_full().min_h(0).bg(t.chrome).border_t(1).border_color(t.border).text_size(13)
       .child(header)

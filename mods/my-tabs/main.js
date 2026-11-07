@@ -1,9 +1,9 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { spaces, panes, focused, exec, run, openOverlay, theme, window, shared, layout, settings } from "herdr";
-import { activePlace, pinSpaceFolders } from "./space-folder.js";
+import { activePlace } from "./space-folder.js";
 
-// Same place the Changes panel reads: the space's fixed folder, on its machine.
+// Same place the Changes panel reads: the focused pane's folder, on its machine.
 function location() {
   const { cwd, on } = activePlace();
   return { cwd, on };
@@ -24,7 +24,6 @@ export default class Tabs extends View {
     this.pressed = null;
     this.diff = null;
     cx.timer.every(3000, (cx) => this.refreshDiff(cx));
-    cx.timer.every(1000, () => pinSpaceFolders());
     this.refreshDiff(cx);
     this.panels = JSON.parse(localStorage.getItem("panels") ?? "{}");
   }

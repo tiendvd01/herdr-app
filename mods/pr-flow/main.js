@@ -68,8 +68,8 @@ const LOCALE = 'l="${LC_ALL:-${LC_MESSAGES:-$LANG}}"; case "$l" in ""|C|C.*|POSI
 const systemLang = () => exec("sh", ["-c", LOCALE]).then((r) => "en").catch(() => "en");
 
 // Every terminal on a branch counts, agent or not; `isAgent` says which ones also get the agent row.
-// A terminal stands for its space's fixed folder (space-folder.js) and that folder's branch,
-// whatever it has cd'd into.
+// A terminal stands for its own folder and that folder's branch (space-folder.js only
+// when it has none).
 async function agentList() {
   const allSpaces = spaces(), ps = panes(), byTerminal = new Map(agents().map((a) => [a.address, a]));
   const branches = new Map(); // on:folder -> branch promise
@@ -82,7 +82,7 @@ async function agentList() {
   };
   return Promise.all(ps.filter((p) => p.terminal).map(async (p) => {
     const space = allSpaces.find((s) => s.tabs?.some((t) => t.id === p.tab)), on = space?.machine ?? null;
-    const cwd = spaceFolder(space, ps) || p.cwd;
+    const cwd = p.cwd || spaceFolder(space, ps);
     if (!cwd) return null;
     const a = byTerminal.get(p.terminal);
     return {
@@ -132,7 +132,7 @@ export default class PrFlow extends View {
       },
     });
     // Each space keeps its own list state (like Issues): filters, the open PR and issue, in
-    // localStorage "spaces". The list only ever shows the repo of the space's fixed folder.
+    // localStorage "spaces". The list only ever shows the repo of the space's folder.
     this.url = null; // the open PR; null shows the list
     this.selected = 0;
     this.view = { state: "open", scope: "mine" };
@@ -286,7 +286,7 @@ export default class PrFlow extends View {
       if (this.issueUrl && !this.issueData.has(this.issueUrl)) this.fetchIssue(this.issueUrl, cx);
       if (id) localStorage.setItem("spaces", JSON.stringify({ ...this.states, [id]: this.snapshot() }));
     }
-    // The repo of the space's fixed folder, looked up once per folder.
+    // The repo of the space's folder, looked up once per folder.
     const key = this.repoKey();
     if (key && !this.spaceRepos.has(key)) {
       const folder = spaceFolder(space), on = space.machine ?? null;

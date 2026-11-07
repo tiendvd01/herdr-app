@@ -1,4 +1,4 @@
-// A lazy file browser for the space's fixed folder (space-folder.js), with bounded read-only previews.
+// A lazy file browser for the space's folder (space-folder.js), with bounded read-only previews.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState, TextView } from "gpui-base";
 import { spaces, panes, focused, exec, run, readTextFile, watchFolder, theme, settings, window } from "herdr";

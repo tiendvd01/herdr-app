@@ -6,7 +6,7 @@ import { v_flex, h_flex, InputState, Input, Scrollbar } from "gpui-base";
 import { run, props, closeOverlay, theme, spaces, panes, exec, home } from "herdr";
 import { spaceFolder } from "./space-folder.js";
 
-// A space's fixed folder (space-folder.js).
+// A space's folder (space-folder.js).
 const place = (s) => spaceFolder(s);
 
 // Checkouts go to <ROOT>/<repo>/<branch, slashes as dashes>.

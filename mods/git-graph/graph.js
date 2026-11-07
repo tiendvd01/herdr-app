@@ -1,5 +1,5 @@
 // The graph itself: Git Graph's table (graph, description, date, author,
-// commit) for the space's fixed folder (space-folder.js), or `props.folder` when opened as
+// commit) for the space's folder (space-folder.js), or `props.folder` when opened as
 // a pane. Labels take double-clicks (checkout) and right-clicks (menus).
 import { div, svg, PathBuilder } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list } from "gpui-base";

@@ -1,8 +1,8 @@
 // Issues: a GitHub issue manager in the side panel.
 // Each workspace (space) keeps its own state: repo, filters, search, the
 // list and the open issue. Switching spaces swaps them.
-// The repo comes from the space's fixed folder (space-folder.js, `gh repo
-// view`), whatever folder a terminal has cd'd into. Clicking an issue shows its body and
+// The repo comes from the space's folder (space-folder.js, `gh repo
+// view`), following the focused terminal's cd. Clicking an issue shows its body and
 // comments as markdown (TextView.markdown, native: mods have no web view).
 //
 // render() never calls cx.notify(): work it needs (detect the repo, load

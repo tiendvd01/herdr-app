@@ -28,7 +28,6 @@ Mở bằng cách bấm badge `N proc · CPU% · RAM` ở thanh trạng thái d�
   2. đọc màn hình terminal, lấy id từ dòng `claude --resume <uuid>`, gửi lại lệnh đó (không có id thì `claude --continue`);
   3. đợi giao diện Claude sẵn sàng (tối đa ~27 giây), rồi gửi `/compact`.
   - Lỗi ghi vào `~/.config/herdr-app/data/restart-session.log`. Spinner chỉ chạy cố định 8 giây, không theo dõi job thật.
-- **Thông báo "Process finished"** do `status-usage` phát: một tiến trình chạy ≥ 20 giây rồi biến mất mà không bị Stop thì báo xong, bấm vào sẽ focus pane.
 
 ## Lưu ý
 

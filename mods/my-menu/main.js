@@ -1,24 +1,15 @@
-// Context menus (Herdr's items, plus a space's fixed folder: space-folder.js). Opened as a popup with
+// Context menus (Herdr's items, plus worktrees). Opened as a popup with
 // props { tab: "pane" | "tab" | "space" | "global", target }.
 // ↑/↓ move, Enter runs, Esc closes. An item is [label, command, args];
 // a command "worktree" opens the worktree dialog instead.
 
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { run, props, closeOverlay, openOverlay, theme, keys, terminals, spaces, panes, exec, pickFolder, home } from "herdr";
-import { spaceFolder, setSpaceFolder } from "./space-folder.js";
+import { run, props, closeOverlay, openOverlay, theme, keys, terminals, spaces, panes, exec } from "herdr";
+import { spaceFolder } from "./space-folder.js";
 
-// A space's fixed folder (space-folder.js).
+// A space's folder (space-folder.js).
 const place = (s) => spaceFolder(s);
-
-// The focused terminal's folder when it is in this space and differs from the fixed one.
-function here(s) {
-  if (!s) return null;
-  const tabs = new Set((s.tabs ?? []).map((c) => c.id));
-  const cwd = panes().find((p) => p.focused && tabs.has(p.tab))?.cwd;
-  return cwd && cwd !== spaceFolder(s) ? cwd : null;
-}
-const short = (path) => { const h = home(); return h && path.startsWith(h) ? "~" + path.slice(h.length) : path; };
 
 // A space's checkout: "main" (a repo's own), "linked" (a worktree), or null.
 async function checkout(folder, on) {
@@ -61,11 +52,8 @@ function items(p, git) {
         ["Close", "tab.close", { id: tg.id }],
       ];
     case "space": {
-      const s = spaces().find((x) => x.id === tg.id), cwd = here(s);
       return [
         ["Rename", "space.rename", { id: tg.id }],
-        ...(cwd ? [[`Use folder ${short(cwd).split("/").pop() || cwd}`, "space-folder.set", { id: tg.id, folder: cwd }]] : []),
-        ...(s && !s.machine ? [["Choose folder…", "space-folder.pick", { id: tg.id }]] : []),
         ...(git ? [["New worktree", "worktree", { space: tg.id, action: "new" }], ["Open worktree", "worktree", { space: tg.id, action: "open" }]] : []),
         ...(git === "linked" ? [["Remove worktree", "worktree", { space: tg.id, action: "remove" }]] : []),
         ["Close", "space.close", { id: tg.id }],
@@ -115,18 +103,8 @@ export default class Menu extends View {
   choose(i, cx) {
     const it = items(props(), this.git)[i];
     if (!it) return;
-    if (it[1] === "space-folder.pick") {
-      const s = spaces().find((x) => x.id === it[2].id);
-      cx.spawn(async () => {
-        const f = await pickFolder({ prompt: `Folder for ${s?.name ?? "this space"}` }).catch(() => null);
-        if (f) setSpaceFolder(it[2].id, f);
-        closeOverlay(props()?.overlay);
-      });
-      return;
-    }
     closeOverlay(props()?.overlay);
-    if (it[1] === "space-folder.set") setSpaceFolder(it[2].id, it[2].folder);
-    else if (it[1] === "worktree") openOverlay({ mod: "my-worktree", kind: "dialog", ...(it[2].action === "open" ? { width: 560, height: 480 } : { width: 440, height: 260 }), props: it[2] });
+    if (it[1] === "worktree") openOverlay({ mod: "my-worktree", kind: "dialog", ...(it[2].action === "open" ? { width: 560, height: 480 } : { width: 440, height: 260 }), props: it[2] });
     else run(it[1], it[2]);
   }
 

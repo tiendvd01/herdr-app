@@ -1,13 +1,13 @@
 // Reading a space's checkout from Git, with no view state.
 import { exec } from "herdr";
-import { spaceFolder as fixedFolder } from "./space-folder.js";
 
 const basename = (path) => path.replace(/\/+$/, "").split("/").pop();
 
-// A space's fixed folder (space-folder.js) defines its checkout, not where a terminal has cd'd.
+// The first terminal defines a space's checkout, not whichever pane is focused.
 // Pass a panes() snapshot: each API call copies the full pane list.
 export function spaceFolder(space, paneList) {
-  return fixedFolder(space, paneList);
+  const tabIDs = new Set((space.tabs ?? []).map((tab) => tab.id));
+  return paneList.find((pane) => tabIDs.has(pane.tab) && pane.cwd)?.cwd || space.folder;
 }
 
 export const checkoutKey = (space, paneList) =>

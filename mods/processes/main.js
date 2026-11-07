@@ -78,7 +78,6 @@ hc send --force "$addr" /compact
   }
 
   signal(sig, it) {
-    if (sig === "-TERM") setShared("procs.killed", [...(shared("procs.killed") ?? []).slice(-50), it.pid]);
     exec("kill", [sig, ...it.pids.map(String)]);
   }
 
@@ -90,7 +89,6 @@ hc send --force "$addr" /compact
   stopAll(se) {
     const tasks = se.items;
     if (!tasks.length) return;
-    setShared("procs.killed", [...(shared("procs.killed") ?? []).slice(-50), ...tasks.map((i) => i.pid)]);
     exec("kill", ["-TERM", ...tasks.flatMap((i) => i.pids.map(String))]);
   }
 

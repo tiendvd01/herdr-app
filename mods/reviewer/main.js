@@ -37,7 +37,7 @@ import { palette } from "./palette.js";
 import { activePlace } from "./space-folder.js";
 import { Dialog } from "./dialog.js";
 
-// The space's fixed folder (space-folder.js), not wherever a terminal has cd'd.
+// The focused pane's folder (space-folder.js).
 function location() {
   const { cwd, on } = activePlace();
   return { cwd, on };
