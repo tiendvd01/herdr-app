@@ -41,3 +41,6 @@ mods/issues/.diagrams/
 
 # Local-markdown issue tracker (agent skills)
 .scratch/
+
+# File-icons panel: rendered mermaid diagrams (cache)
+mods/file-icons/.diagrams/

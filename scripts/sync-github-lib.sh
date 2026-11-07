@@ -30,3 +30,6 @@ sync lib/pr-gh.js mods/pr-flow/gh.js mods/inbox/gh.js
 sync lib/pr-status.js mods/pr-flow/status.js mods/inbox/status.js
 # Panel buttons (Files, Changes, Issues, Git, Pull requests): one look for the five. Icons: lib/icons/.
 sync lib/panel-ui.js mods/file-icons/panel-ui.js mods/reviewer/panel-ui.js mods/issues/panel-ui.js mods/git-graph/panel-ui.js mods/pr-flow/panel-ui.js
+# Markdown with mermaid diagrams and its zoomable viewer: Issues and Files.
+sync lib/markdown.js mods/issues/markdown.js mods/file-icons/markdown.js
+sync lib/diagram-viewer.js mods/issues/diagram-viewer.js mods/file-icons/diagram-viewer.js

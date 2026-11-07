@@ -10,7 +10,8 @@
 import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextView, Scrollbar, v_virtual_list } from "gpui-base";
 import { exec, theme, focused, spaces, appHome, home, notify, settings, props, openOverlay, readTextFile, writeTextFile } from "herdr";
-import { Viewer } from "./viewer.js";
+import { Viewer } from "./diagram-viewer.js";
+import { Markdown } from "./markdown.js";
 import { icon, iconButton, backButton, chip, button, textButton } from "./panel-ui.js";
 import { spaceFolder } from "./space-folder.js";
 import { ghAccounts } from "./gh-account.js";
@@ -75,7 +76,7 @@ export default class Issues extends View {
     this.autoRepo = {}; // folder -> repo from gh (null: not a repo / asking)
     this.ws = {}; // space id -> live state
     this.cur = null; // the space whose state is shown
-    this.diagrams = {}; // hash -> { status: "pending" | "ok" | "error", w, h, error }
+    this.mdView = new Markdown("issues");
     this.sums = {}; // "owner/repo#n" -> saved summary
     this.sumRun = {}; // key -> { error } while a summary runs (or failed)
     this.width = 360;
@@ -298,62 +299,9 @@ export default class Issues extends View {
   }
 
   // ---------- diagrams ----------
-  // Starts rendering one diagram (spawned: safe to call from render).
-  diagram(src, cx) {
-    const dark = settings().dark !== false, key = hash(`${dark ? "d" : "l"}:${src}`);
-    if (this.diagrams[key]) return { key, ...this.diagrams[key] };
-    this.diagrams[key] = { status: "pending" };
-    cx.spawn(async (cx) => {
-      // image() only reads under mods/; a hidden folder there doesn't reload the mod.
-      const dir = `${DATA()}/diagrams`, inp = `${dir}/${key}.mmd`, pics = `${appHome()}/mods/issues/.diagrams`, out = `${pics}/${key}.png`;
-      const d = this.diagrams[key];
-      try {
-        await fs.mkdir(dir, { recursive: true }); await fs.mkdir(pics, { recursive: true });
-        if (!(await fs.exists(inp))) await fs.writeFile(inp, src);
-        if (!(await fs.exists(out))) {
-          // A login + interactive zsh, so nvm's node and mmdc are on PATH.
-          const r = await exec("zsh", ["-ilc", 'mmdc -i "$1" -o "$2" -t "$3" -b transparent -s 2 -q', "zsh", inp, out, dark ? "dark" : "default"]);
-          if (!(await fs.exists(out))) throw new Error((r.stderr || r.stdout).trim().split("\n").slice(-6).join("\n") || "mmdc failed");
-        }
-        const s = await exec("sips", ["-g", "pixelWidth", "-g", "pixelHeight", out]);
-        d.w = Number(s.stdout.match(/pixelWidth: (\d+)/)?.[1] ?? 800) / 2;
-        d.h = Number(s.stdout.match(/pixelHeight: (\d+)/)?.[1] ?? 400) / 2;
-        d.status = "ok"; d.path = `mods/issues/.diagrams/${key}.png`;
-        d.mmd = inp; d.dark = dark; d.hires = `${pics}/${key}@4.png`; d.hiresPath = `mods/issues/.diagrams/${key}@4.png`;
-      } catch (e) { d.status = "error"; d.error = String(e?.message ?? e); }
-      cx.notify();
-    });
-    return { key, status: "pending" };
-  }
-
-  // A rendered diagram with a button (and a click on it) that opens it in the zoomable viewer.
-  diagramCard(id, d, w, h, t) {
-    const open = () => openOverlay({ mod: "issues", kind: "dialog", width: 0.9, height: 0.9,
-      props: { viewer: true, title: this.st().detail?.title ?? "", path: d.path, w: d.w, h: d.h, mmd: d.mmd, dark: d.dark, hires: d.hires, hiresPath: d.hiresPath } });
-    return div().id(`dg-${id}`).relative().p(6).rounded(6).bg(t.surface).cursor_pointer().on_click(open)
-      .child(image(d.path).w(w).h(h))
-      .child(div().absolute().top(6).right(6).rounded(6).bg(t.raised).border_1().border_color(t.border)
-        .child(iconButton(`dg-open-${id}`, "maximize", "Open in a dialog to zoom", (_e, cx) => { cx.stop_propagation(); open(); })));
-  }
-
-  // Markdown with its mermaid blocks drawn as pictures.
+  // Markdown with its mermaid blocks drawn as pictures (lib/markdown.js, shared with Files).
   markdown(id, md, t, cx) {
-    const parts = [], text = md || "_(empty)_";
-    let last = 0, i = 0;
-    for (const m of text.matchAll(MERMAID)) {
-      if (m.index > last) parts.push(TextView.markdown(`${id}-${i++}`, text.slice(last, m.index)).selectable(true).on_link_click((url) => exec("open", [url])));
-      const d = this.diagram(m[1].trim(), cx), max = Math.max(120, this.width - 64);
-      parts.push(d.status === "ok"
-        ? this.diagramCard(`${id}-${i++}`, d, Math.min(d.w, max), d.h * Math.min(1, max / d.w), t)
-        : d.status === "error"
-          ? v_flex().gap(4).child(div().text_size(11).text_color(t.ansi1).whitespace_normal().child(`Diagram error: ${d.error}`))
-            .child(TextView.markdown(`${id}-${i++}`, "```\n" + m[1] + "\n```"))
-          : h_flex().gap(6).p(6).items_center().text_size(11).text_color(t.dim)
-            .child(icon("spinner", 12).text_color(t.working).spin(900)).child("Rendering diagram…"));
-      last = m.index + m[0].length;
-    }
-    if (last < text.length) parts.push(TextView.markdown(`${id}-${i++}`, text.slice(last)).selectable(true).on_link_click((url) => exec("open", [url])));
-    return v_flex().gap(8).children(parts);
+    return this.mdView.render(id, md, t, cx, { width: this.width, title: this.st().detail?.title ?? "" });
   }
 
   // ---------- render ----------

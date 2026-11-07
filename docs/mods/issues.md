@@ -9,7 +9,7 @@ Panel GitHub issues ở cột phải (cùng stack `panel-body` với Files và C
 - **Bộ lọc**: Open / Closed / All, và Mine (`--assignee @me`). Space mới mặc định **Open + Mine** (`fresh()` trong `main.js`); space đã lưu giữ lựa chọn cũ. Tìm kiếm gửi bằng Enter. Danh sách tối đa 100 issue.
 - Bấm một issue để xem nội dung và comment (render markdown native, link mở bằng `open`). Có nút icon mở ngoài (tooltip "Open on GitHub") để mở issue trên web. Mod không đóng/mở lại issue; việc đó làm trên web.
 - **Thu gọn comment**: bấm tiêu đề một comment (mũi tên ▾/▸) để gập/mở; comment gập chỉ còn tiêu đề kèm 80 ký tự đầu. Nút "Collapse comments" / "Expand comments" ở thanh trên gập hoặc mở tất cả. Trạng thái gập chỉ giữ trong bộ nhớ, theo space, và reset khi mở issue khác (khóa theo `c.id` của comment).
-- **Sơ đồ mermaid** trong body/comment (khối ` ```mermaid `) được vẽ thành ảnh bằng `mmdc` (mermaid-cli), chạy qua `zsh -ilc` để lấy node từ nvm. Bấm ảnh mở viewer (`viewer.js`, hộp thoại). Ảnh cache ở `mods/issues/.diagrams/` (gitignored).
+- **Sơ đồ mermaid** trong body/comment (khối ` ```mermaid `) được vẽ thành ảnh bằng `mmdc` (mermaid-cli), chạy qua `zsh -ilc` để lấy node từ nvm. Code dùng chung với panel Files: `lib/markdown.js` + `lib/diagram-viewer.js` (sửa ở `lib/` rồi chạy `scripts/sync-github-lib.sh`). Bấm ảnh mở viewer (hộp thoại). Ảnh cache ở `mods/issues/.diagrams/` (gitignored).
 - **Loading**: fetch danh sách mà bộ lọc đó chưa có cache thì cả vùng danh sách thay bằng spinner giữa khung kèm "Loading issues…", giống pr-flow. Đã có cache thì vẫn hiện danh sách cũ trong lúc tải lại, chỉ có spinner nhỏ ở thanh lọc. Mở issue chưa có cache thì hiện "Loading issue #N…"; issue đã có cache vẫn hiện nội dung cũ, spinner nhỏ ở thanh trên.
 
 ## Tóm tắt bằng AI

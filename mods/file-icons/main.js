@@ -7,9 +7,11 @@
 // switch for Markdown files.
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState, TextView, InputState, Input } from "gpui-base";
-import { spaces, panes, focused, exec, readTextFile, watchFolder, run, theme, settings, window } from "herdr";
+import { spaces, panes, focused, exec, readTextFile, watchFolder, run, theme, settings, window, props } from "herdr";
 import ICONS from "./icons.js";
 import { iconButton, chip } from "./panel-ui.js";
+import { Markdown } from "./markdown.js";
+import { Viewer } from "./diagram-viewer.js";
 
 function location() {
   const space = spaces().find(s => s.active), f = focused();
@@ -59,7 +61,10 @@ async function directory(path, on) {
 
 export default class Files extends View {
   init(_props, cx) {
+    // Opened as the diagram viewer (a dialog): this copy is the viewer, nothing else.
+    if (props()?.viewer) { this.viewer = Object.create(Viewer.prototype); this.viewer.init(_props, cx); return; }
     this.entries = new Map(); this.folders = new Set(); this.pending = new Set(); this.marks = {}; this.ignored = new Set();
+    this.mdView = new Markdown("file-icons");
     this.query = ""; this.all = null; this.allLoading = false;
     this.search = InputState.new({ placeholder: "Search files…" });
     this.search.on("change", (_e, cx) => { this.query = this.search.value().trim(); if (this.query) this.loadAll(cx); cx.notify(); });
@@ -239,6 +244,7 @@ export default class Files extends View {
   }
 
   render(cx) {
+    if (this.viewer) return this.viewer.render(cx);
     if (key() !== this.context) this.refresh(cx);
     const t = theme(), dark = Boolean(settings().dark);
     return v_flex().id("files").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
@@ -260,7 +266,7 @@ export default class Files extends View {
         .when(this.limited, el => el.child(div().p(8).text_size(11).text_color(t.dim).child("File list limited to 500 entries per folder and 5,000 total")))))
       .when(Boolean(this.file), el => el.child(this.code && this.md !== null && this.mdPreview
         ? div().id("files-md").flex_1().min_h(0).overflow_y_scrollbar().p(12).text_size(12.5)
-            .child(TextView.markdown(`files-md-${this.file}`, this.md).selectable(true).on_link_click((url) => exec("open", [url])))
+            .child(this.mdView.render(`files-md-${this.file}`, this.md, t, cx, { title: this.file }))
         : this.code ? Editor.new(this.code).flex_1().min_h(0) : div().p(12).text_color(t.dim).child(this.fileError || "Loading file…")));
   }
 }
