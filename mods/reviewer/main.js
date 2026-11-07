@@ -745,7 +745,7 @@ export default class Changes extends View {
     }
     for (const c of this.comments) perFile[c.path] = (perFile[c.path] ?? 0) + 1;
     const listSec = v_flex().size_full().min_h(0)
-      .child(v_flex().id("changes-list").flex_1().min_h(0).overflow_y_scrollbar().p(6).border_b(1).border_color(t.border).children(listRows.map((r) => {
+      .child(v_flex().id("changes-list").flex_1().min_h(0).overflow_y_scrollbar().p(6).children(listRows.map((r) => {
         if (r.dir != null) {
           const shut = this.collapsed.has(r.dir);
           return h_flex().id(`dir-${r.dir}`).h(28).flex_none().pl(8 + r.depth * 12).pr(8).gap(6).items_center().rounded(7).cursor_pointer().hover((s) => s.bg(t.hover))
