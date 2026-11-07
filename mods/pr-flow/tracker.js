@@ -29,7 +29,7 @@ export function createTracker({ gh, remoteOf, store, settings, now = Date.now })
   let lastError = '';
   let viewAt = -Infinity;
   let view = { state: 'open', scope: 'mine' };
-  let me = null; // your GitHub login
+  let me = null; // your GitHub logins, one per gh account
 
   async function repoOf(agent) {
     const key = `${agent.on ?? ''}:${agent.cwd}`;
@@ -70,7 +70,7 @@ export function createTracker({ gh, remoteOf, store, settings, now = Date.now })
   async function discoverView() {
     if (now() - viewAt < VIEW_MS) return;
     viewAt = now();
-    if (!me) me = await gh.me().catch(() => null);
+    if (!me?.length) me = await gh.me().catch(() => null);
     let urls = [];
     try {
       if (view.scope === 'mine') urls = await gh.mine(view.state);
@@ -208,7 +208,7 @@ export function createTracker({ gh, remoteOf, store, settings, now = Date.now })
       }
       const status = prState(data.pr, { now: now(), headSeenAt: entry.headSeenAt, threads: data.threads }, settings);
       const flow = data.pr.state === 'MERGED' && data.pr.mergeCommit?.oid ? { ...(flows.get(entry.url) ?? { runs: [], jobs: {} }), active: flowBusy(entry.url) } : null;
-      out.push({ ...base, mine: me ? data.pr.author?.login === me : null, pr: data.pr, threads: data.threads, issues: data.issues ?? [], status, flow });
+      out.push({ ...base, mine: me?.length ? me.includes(data.pr.author?.login) : null, pr: data.pr, threads: data.threads, issues: data.issues ?? [], status, flow });
     }
     const rank = (c) => (c.pr?.state === 'MERGED' && !c.flow?.active ? 1 : 0);
     const time = (c) => Date.parse(c.pr?.updatedAt ?? 0) || 0;

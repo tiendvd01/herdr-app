@@ -22,4 +22,6 @@ Nguồn duy nhất: `lib/space-folder.js`. Mod chỉ import được file trong 
 
 `pr-flow`: mỗi terminal đại diện cho folder cố định của space chứa nó; branch đọc bằng `git branch --show-current` ở folder đó (hoặc lấy branch của pane nếu pane đang đứng đúng folder).
 
+`status-usage` hiện branch của folder cố định, và popup `branch-switch` đổi branch ở folder đó.
+
 Chưa đổi: `project-settings`, `project-scripts`, `status-usage` (post-create) vẫn dùng `space.folder`.

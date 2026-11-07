@@ -472,8 +472,14 @@ export default class PrFlow extends View {
       .child(this.chip("v-all", tr("f_all"), "", this.view.scope === "all", () => this.setView({ scope: "all" }), t));
   }
 
+  // Cards still fetching (no data, no error) are not drawn as rows: the list shows one loading
+  // state instead, or the header spinner while other rows are already on screen.
   shown() {
-    return this.filtered();
+    return this.filtered().filter((c) => !this.pending(c));
+  }
+
+  pending(card) {
+    return !card.pr && !card.error;
   }
 
   chip(id, label, count, active, onPick, t) {
@@ -495,7 +501,7 @@ export default class PrFlow extends View {
         .child(icon("settings", 14, t.muted)))
       .child(h_flex().id("refresh").size(26).items_center().justify_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover))
         .on_click((_e, cx) => this.refreshNow(cx))
-        .child(this.refreshing ? icon("spinner", 13, t.muted).spin(900) : icon("refresh", 14, t.muted)));
+        .child(this.refreshing || this.filtered().some((c) => this.pending(c)) ? icon("spinner", 13, t.muted).spin(900) : icon("refresh", 14, t.muted)));
   }
 
   row(card, index, t) {
@@ -530,6 +536,12 @@ export default class PrFlow extends View {
 
   list(t) {
     const tr = this.t, all = this.filtered(), cards = this.shown();
+    if (!cards.length && all.some((c) => this.pending(c))) {
+      return v_flex().size_full().child(this.header(0, t)).child(this.viewBar(t))
+        .child(v_flex().flex_1().items_center().justify_center().gap(8)
+          .child(icon("spinner", 18, t.dim).spin(900))
+          .child(div().text_size(12).text_color(t.dim).child(tr("loading"))));
+    }
     if (!cards.length) {
       const noGh = !this.ghReady, repo = this.spaceRepo();
       const body = noGh ? tr("gh_body") : repo === "pending" ? "…" : !repo ? "This space's folder is not a GitHub repo." : `${repo} · ${tr("empty_body")}`;

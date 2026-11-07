@@ -3,6 +3,7 @@ import { h_flex, v_flex, HoverCard } from "gpui-base";
 import { spaces, agents, theme, run, window, keys, exec, setShared, notify, openOverlay, shared } from "herdr";
 import { collect } from "./procs.js";
 import { checkPostScripts } from "./postscripts.js";
+import { spaceFolder } from "./space-folder.js";
 
 const ICONS = { claude: "claude", copilot: "copilot", codex: "codex", agy: "antigravity", gemini: "gemini" };
 
@@ -39,7 +40,32 @@ export default class WorkspaceStatus extends View {
     // The Sessions dialog's refresh button bumps shared "procs.refresh"; poll again right away.
     this.seenRefresh = shared("procs.refresh");
     cx.timer.every(500, (cx) => { const r = shared("procs.refresh"); if (r !== this.seenRefresh) { this.seenRefresh = r; this.pollProcs(cx); } });
+    // The branch shown is the one of the space's fixed folder, the folder the
+    // branch-switch popup acts on. Re-read every 3s, and right after a switch.
+    this.branch = null;
+    this.seenSwitch = shared("branch.switched");
+    cx.timer.every(3000, (cx) => this.pollBranch(cx));
+    cx.timer.every(500, (cx) => { const s = shared("branch.switched"); const k = spaces().find(x => x.active)?.id; if (s !== this.seenSwitch || k !== this.branchSpace) { this.seenSwitch = s; this.pollBranch(cx); } });
+    this.pollBranch(cx);
     cx.timer.every(3000, (cx) => { if (!this.psbusy) { this.psbusy = true; cx.spawn(async () => { try { await checkPostScripts(exec); } catch (e) { console.log("post-script", String(e)); } this.psbusy = false; }); } });
+  }
+
+  pollBranch(cx) {
+    if (this.bbusy) return;
+    const space = spaces().find(s => s.active);
+    const folder = spaceFolder(space);
+    this.branchSpace = space?.id;
+    if (!folder) { this.branch = null; return; }
+    this.bbusy = true;
+    cx.spawn(async (cx) => {
+      let b = null;
+      try {
+        const r = await exec("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: folder, on: space.machine ?? undefined });
+        if (r.code === 0) b = (r.stdout ?? "").trim() || null;
+      } catch {}
+      this.bbusy = false;
+      if (b !== this.branch) { this.branch = b; cx.notify(); }
+    });
   }
 
   pollProcs(cx) {
@@ -142,7 +168,11 @@ export default class WorkspaceStatus extends View {
     const label = (icon, text) => h_flex().gap(6).items_center().child(svg(`mods/workspace-chrome/${icon}.svg`).size(13)).child(text);
     return h_flex().size_full().px(14).gap(16).items_center().bg(t.chrome).border_t(1).border_color(t.border).text_size(11.8).text_color(t.muted)
       .child(label(space?.machine ? "server" : "monitor", space?.machine ?? "This computer"))
-      .when(Boolean(space?.branch), el => el.child(label("branch", space.branch)))
+      .when(Boolean(this.branch), el => el.child(h_flex().id("branch-switch").cursor_pointer()
+        .hover((s) => s.text_color(t.foreground))
+        .on_click(() => openOverlay({ mod: "branch-switch", kind: "popup", width: 380, height: 420 }))
+        .child(label("branch", this.branch))
+        .child(svg("mods/workspace-chrome/chevron-down.svg").size(11).ml(3))))
       .child(h_flex().gap(6).items_center().child(div().size(6).rounded(3).bg(t.dim)).child(`${list.length} agents`)
         .when(needs > 0, el => el.child(div().text_color(t.blocked).child(`· ${needs} needs you`))))
       .child(this.procBadge(t))

@@ -21,4 +21,7 @@ sync lib/space-folder.js \
   mods/my-menu/space-folder.js \
   mods/my-new-menu/space-folder.js \
   mods/my-worktree/space-folder.js \
-  mods/open-vscode/space-folder.js
+  mods/open-vscode/space-folder.js \
+  mods/branch-switch/space-folder.js \
+  mods/status-usage/space-folder.js
+sync lib/gh-account.js mods/pr-flow/gh-account.js mods/better-sidebar/git/gh-account.js mods/issues/gh-account.js

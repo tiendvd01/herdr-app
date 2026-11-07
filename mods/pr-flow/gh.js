@@ -14,6 +14,7 @@ const THREADS_QUERY = `query($owner:String!,$name:String!,$number:Int!){reposito
 }}}`;
 
 import { parsePrUrl } from './github.js';
+import { ghAccounts } from './gh-account.js';
 export { parsePrUrl };
 
 export const MERGE_METHODS = ['squash', 'merge', 'rebase'];
@@ -33,9 +34,11 @@ export function runIdFromUrl(url) {
   return m ? m[1] : null;
 }
 
+// Each command runs as the gh account of the repo it names (gh-account.js); the rest as the active one.
 export function createGh(exec) {
+  const accounts = ghAccounts(exec);
   const run = async (args) => {
-    const r = await exec('gh', args);
+    const r = await accounts.run(args);
     if (r.code !== 0) throw new Error(String(r.stderr).trim() || `gh ${args[0]} failed`);
     return String(r.stdout);
   };
@@ -49,10 +52,28 @@ export function createGh(exec) {
       return p && Date.parse(p.mergedAt) > since ? p.url : null;
     },
     // Your PRs in one state ('open' or 'merged'), newest first.
-    mine: async (state = 'open') => (await json(['search', 'prs', '--author', '@me', state === 'merged' ? '--merged' : '--state=open', '--sort', 'updated', '--limit', state === 'merged' ? '20' : '100', '--json', 'url'])).map((p) => p.url),
+    // Asked of every logged-in account, so a personal repo's PRs count as yours too.
+    mine: async (state = 'open') => {
+      const args = ['search', 'prs', '--author', '@me', state === 'merged' ? '--merged' : '--state=open', '--sort', 'updated', '--limit', state === 'merged' ? '20' : '100', '--json', 'url'];
+      const { logins } = await accounts.accounts();
+      const lists = await Promise.all((logins.length ? logins : [null]).map(async (login) => {
+        const r = await accounts.as(login, args).catch(() => null);
+        return r?.code === 0 ? JSON.parse(String(r.stdout)).map((p) => p.url) : null;
+      }));
+      if (lists.every((l) => l === null)) throw new Error('gh search failed');
+      return [...new Set(lists.flat().filter(Boolean))];
+    },
     // Any author's PRs of one repo in one state.
     listRepo: async (repo, state = 'open') => (await json(['pr', 'list', '-R', repo, '--state', state, '--limit', '30', '--json', 'url'])).map((p) => p.url),
-    me: async () => (await run(['api', 'user', '-q', '.login'])).trim(),
+    // Every logged-in account's GitHub login (what a PR's author shows; may differ from gh's own name for it).
+    me: async () => {
+      const { logins } = await accounts.accounts();
+      const names = await Promise.all((logins.length ? logins : [null]).map(async (login) => {
+        const r = await accounts.as(login, ['api', 'user', '-q', '.login']);
+        return r.code === 0 ? String(r.stdout).trim() : null;
+      }));
+      return names.filter(Boolean);
+    },
     fetchPr: (url) => json(['pr', 'view', url, '--json', PR_FIELDS]),
     fetchThreads: async (url) => {
       const p = parsePrUrl(url);

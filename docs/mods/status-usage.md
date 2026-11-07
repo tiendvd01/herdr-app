@@ -4,7 +4,14 @@ Clone của `workspace-status`. Thanh dưới cùng của cửa sổ, đồng th
 
 ## Thanh hiển thị
 
-Từ trái sang phải: máy hiện tại, branch của space đang chọn, số agent (kèm "N needs you" khi có agent blocked), badge tiến trình, mức dùng AI, gợi ý phím mở palette.
+Từ trái sang phải: máy hiện tại, branch của space đang chọn (bấm để đổi, xem dưới), số agent (kèm "N needs you" khi có agent blocked), badge tiến trình, mức dùng AI, gợi ý phím mở palette.
+
+## Đổi branch
+
+- Branch hiện trên thanh là branch của **folder cố định** của space (`space-folder.js`), đọc bằng `git rev-parse --abbrev-ref HEAD` mỗi 3 giây, ngay khi đổi space, và ngay sau khi đổi branch (shared `branch.switched`).
+- Bấm vào branch mở popup mod `branch-switch` (cũng mở được bằng `mod.open {"name":"branch-switch"}`): ô lọc + danh sách branch local (mới nhất trước, branch hiện tại đầu tiên) rồi branch chỉ có trên remote.
+- ↑/↓ + Enter hoặc bấm để `git switch`. Branch remote: `git switch --track <remote>/<tên>`. Gõ tên không có sẵn: dòng "Create branch" chạy `git switch -c` từ HEAD.
+- Branch đang checkout ở worktree khác bị làm mờ ("other worktree") và không đổi được. Lỗi git (vd. thay đổi chưa commit bị đè) hiện đỏ ngay trong popup; đổi xong có toast.
 
 ## Giới hạn dùng AI ("Used")
 

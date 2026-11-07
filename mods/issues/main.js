@@ -12,6 +12,10 @@ import { v_flex, h_flex, InputState, Input, TextView } from "gpui-base";
 import { exec, theme, focused, spaces, appHome, home, notify, settings, props, openOverlay, readTextFile, writeTextFile } from "herdr";
 import { Viewer } from "./viewer.js";
 import { spaceFolder } from "./space-folder.js";
+import { ghAccounts } from "./gh-account.js";
+
+// Each repo's gh account (gh-account.js): a personal repo runs as that account, the rest as the active one.
+const accounts = ghAccounts(exec);
 import * as fs from "fs/promises";
 
 
@@ -133,7 +137,7 @@ export default class Issues extends View {
     if (!f || f in this.autoRepo || this.space()?.machine) return;
     this.autoRepo[f] = null;
     cx.spawn(async (cx) => {
-      const r = await exec("gh", ["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], { cwd: f }).catch(fail);
+      const r = await accounts.any(["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], { cwd: f }).catch(fail);
       this.autoRepo[f] = r.code === 0 ? r.stdout.trim() || null : null;
       cx.notify();
     });
@@ -182,7 +186,7 @@ export default class Issues extends View {
         "--json", "number,title,state,labels,assignees,updatedAt,author"];
       if (s.mine) args.push("--assignee", "@me");
       if (s.query) args.push("--search", s.query);
-      const r = await exec("gh", args).catch(fail);
+      const r = await accounts.run(args).catch(fail);
       this.inflight.delete(`lists:${key}`);
       if (r.code === 0) this.put("lists", key, JSON.parse(r.stdout || "[]"));
       if (key === s.listKey) {
@@ -202,7 +206,7 @@ export default class Issues extends View {
     if (this.inflight.has(id) || (!force && this.isFresh("issues", key))) return;
     this.inflight.add(id); this.tried[id] = Date.now();
     cx.spawn(async (cx) => {
-      const r = await exec("gh", ["issue", "view", String(n), "-R", repo, "--json",
+      const r = await accounts.run(["issue", "view", String(n), "-R", repo, "--json",
         "number,title,body,state,author,labels,assignees,comments,url,createdAt"]).catch(fail);
       this.inflight.delete(id);
       if (r.code === 0) this.put("issues", key, JSON.parse(r.stdout));

@@ -405,7 +405,8 @@ export class Graph {
   }
 
   graphWidth() { return this.cols.graph ? this.clampColumn("graph", this.cols.graph) : Math.min(Math.max(GRAPH_MIN, PAD * 2 + this.lanes * LANE), this.graphMax); }
-  trailing() { return this.wide ? ["date", "author", "hash"] : ["date"]; }
+  // Author shows at every width; the hash only when there is room.
+  trailing() { return this.wide ? ["date", "author", "hash"] : ["date", "author"]; }
 
   clampColumn(key, w) {
     const { min, max = (this.width ?? Infinity) * 0.7 } = COLUMNS[key];
@@ -621,8 +622,8 @@ export class Graph {
         .children(this.labels.get(commit.hash).map((l) => this.label(l, color, t, mono)))
         .child(div().flex_1().min_w(0).truncate().text_color(fg).when(commit.head, (e) => e.font_semibold()).child(commit.subject)))
       .child(div().w(this.cols.date).flex_none().text_right().truncate().text_color(t.dim).child(commit.uncommitted ? "*" : ago(commit.time)))
+      .child(div().w(this.cols.author).flex_none().truncate().text_color(t.muted).child(commit.uncommitted ? "*" : commit.author))
       .when(this.wide, (e) => e
-        .child(div().w(this.cols.author).flex_none().truncate().text_color(t.muted).child(commit.uncommitted ? "*" : commit.author))
         .child(div().w(this.cols.hash).flex_none().font_family(mono).text_size(11).text_color(t.dim).child(commit.uncommitted ? "*" : commit.hash.slice(0, 8))));
   }
 

@@ -2,6 +2,7 @@
 // from space rendering so frequent redraws never launch Git or GitHub commands.
 import { exec } from "herdr";
 import { githubRepo, githubHostChecker, repoFromRemote } from "./github.js";
+import { ghAccounts } from "./gh-account.js";
 
 export const PR_POLL_MS = 60000;
 export const prPlaceKey = (machine, folder) => JSON.stringify([machine ?? null, folder]);
@@ -39,6 +40,7 @@ export class PRStatusObserver {
     this.checked = new Map(); // Checkout key -> last attempt time and branch.
     this.entries = new Map(); // Checkout key -> last published PRs or error.
     this.cache = new Map(); // gh argument list -> short-lived response cache.
+    this.accounts = ghAccounts(exec); // each repo's gh account (gh-account.js)
     this.isGithubHost = githubHostChecker(exec); // ssh host alias -> does it resolve to github.com?
   }
 
@@ -180,7 +182,7 @@ export class PRStatusObserver {
     const key = JSON.stringify(args);
     const cached = this.cache.get(key);
     if (cached && Date.now() - cached.at < PR_POLL_MS) return cached.data;
-    const result = await exec("gh", args);
+    const result = await this.accounts.run(args);
     if (result.code !== 0)
       throw new Error((result.stderr || "GitHub unavailable; check gh auth login").trim());
     const data = JSON.parse(result.stdout);
