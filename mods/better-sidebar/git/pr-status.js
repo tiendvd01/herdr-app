@@ -1,6 +1,7 @@
 // Read-only PR discovery for each [machine, checkout]. This observer is separate
 // from space rendering so frequent redraws never launch Git or GitHub commands.
 import { exec } from "herdr";
+import { githubRepo, githubHostChecker, repoFromRemote } from "./github.js";
 
 export const PR_POLL_MS = 60000;
 export const prPlaceKey = (machine, folder) => JSON.stringify([machine ?? null, folder]);
@@ -24,16 +25,8 @@ export function prAppearance(pr, colors) {
   };
 }
 
-/** Only github.com remotes are supported. Never pass an arbitrary remote URL to gh. */
-export function githubRepository(url) {
-  return /^(?:https?:\/\/github\.com\/|git@github\.com:|ssh:\/\/git@github\.com\/)([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/.exec(
-    url.trim(),
-  )?.[1];
-}
-
-// An ssh alias ("git@github-soratech:owner/repo.git", from ~/.ssh/config) that points at
-// github.com. Only the owner/repo is taken from the URL; `ssh -G` says where the alias goes.
-const ALIAS = /^(?:ssh:\/\/)?(?:[\w.-]+@)?([\w.-]+)[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/;
+/** Remote parsing lives in lib/github.js, shared with pr-flow. */
+export const githubRepository = (url) => githubRepo(url) ?? undefined;
 
 /**
  * One observer per sidebar. Git runs on the checkout's machine; gh runs locally,
@@ -46,7 +39,7 @@ export class PRStatusObserver {
     this.checked = new Map(); // Checkout key -> last attempt time and branch.
     this.entries = new Map(); // Checkout key -> last published PRs or error.
     this.cache = new Map(); // gh argument list -> short-lived response cache.
-    this.aliases = new Map(); // ssh host alias -> does it resolve to github.com?
+    this.isGithubHost = githubHostChecker(exec); // ssh host alias -> does it resolve to github.com?
   }
 
   refresh(places, cx) {
@@ -180,14 +173,7 @@ export class PRStatusObserver {
   }
 
   async aliasRepository(url, place) {
-    const m = ALIAS.exec(url.trim());
-    if (!m || /^https?:/i.test(url.trim())) return undefined;
-    const key = JSON.stringify([place.machine ?? null, m[1]]);
-    if (!this.aliases.has(key)) {
-      const r = await exec("ssh", ["-G", m[1]], { on: place.machine }).catch(() => null);
-      this.aliases.set(key, /^hostname github\.com$/im.test(r?.stdout ?? ""));
-    }
-    return this.aliases.get(key) ? m[2] : undefined;
+    return (await repoFromRemote(url, { isGithubHost: this.isGithubHost, on: place.machine })) ?? undefined;
   }
 
   async query(args) {

@@ -168,6 +168,13 @@
                       "content": {
                         "mod": "git-graph"
                       }
+                    },
+                    {
+                      "id": "prs",
+                      "type": "block",
+                      "content": {
+                        "mod": "pr-flow"
+                      }
                     }
                   ],
                   "active": "files"
