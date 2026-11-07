@@ -13,7 +13,6 @@ sync lib/github.js mods/pr-flow/github.js mods/better-sidebar/git/github.js mods
 sync lib/space-folder.js \
   mods/better-sidebar/git/space-folder.js \
   mods/my-files/space-folder.js \
-  mods/reviewer/space-folder.js \
   mods/issues/space-folder.js \
   mods/git-graph/space-folder.js \
   mods/pr-flow/space-folder.js \
@@ -30,4 +29,4 @@ sync lib/gh-account.js mods/pr-flow/gh-account.js mods/better-sidebar/git/gh-acc
 sync lib/pr-gh.js mods/pr-flow/gh.js mods/inbox/gh.js
 sync lib/pr-status.js mods/pr-flow/status.js mods/inbox/status.js
 # Panel buttons (Files, Changes, Issues, Git, Pull requests): one look for the five. Icons: lib/icons/.
-sync lib/panel-ui.js mods/my-files/panel-ui.js mods/reviewer/panel-ui.js mods/issues/panel-ui.js mods/git-graph/panel-ui.js mods/pr-flow/panel-ui.js
+sync lib/panel-ui.js mods/my-files/panel-ui.js mods/issues/panel-ui.js mods/git-graph/panel-ui.js mods/pr-flow/panel-ui.js

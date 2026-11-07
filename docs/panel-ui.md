@@ -1,6 +1,6 @@
 # Button của các panel
 
-Năm panel bên phải (Files `my-files`, Changes `reviewer`, Issues `issues`, Git `git-graph`, Pull requests `pr-flow`) dùng chung một bộ button: `lib/panel-ui.js`, icon trong `lib/icons/` (Lucide). `scripts/sync-github-lib.sh` chép `panel-ui.js` vào từng mod; sửa ở `lib/` rồi chạy script.
+Năm panel bên phải (Files `my-files`, Changes `gitview`, Issues `issues`, Git `git-graph`, Pull requests `pr-flow`) dùng chung một bộ button: `lib/panel-ui.js`, icon trong `lib/icons/` (Lucide). `scripts/sync-github-lib.sh` chép `panel-ui.js` vào từng mod; sửa ở `lib/` rồi chạy script.
 
 | Loại | Helper | Dùng cho | Hình dáng |
 |---|---|---|---|
