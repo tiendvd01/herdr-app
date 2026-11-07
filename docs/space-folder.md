@@ -18,6 +18,8 @@ Chuột phải space ở sidebar (mod `my-menu`, clone của `menu`):
 
 Nguồn duy nhất: `lib/space-folder.js`. Mod chỉ import được file trong thư mục của chính nó, nên `scripts/sync-github-lib.sh` chép file này vào từng mod (`<mod>/space-folder.js`, `better-sidebar/git/space-folder.js`). Sửa `lib/` rồi chạy script, đừng sửa bản chép.
 
+`pr-flow` giữ trạng thái riêng cho từng space, giống `issues` (`localStorage` khóa `spaces`): bộ lọc Open/Merged, Mine/Everyone, owner/repo đang chọn, PR và issue đang mở. Danh sách **chỉ** hiện PR của repo thuộc folder cố định của space (`git remote get-url origin`, tên repo hiện cạnh tiêu đề); không có thanh chọn owner/repo, không có chế độ xem chung. Số đếm Open/Merged cũng chỉ tính repo đó. Folder không phải repo GitHub thì panel báo vậy.
+
 `pr-flow`: mỗi terminal đại diện cho folder cố định của space chứa nó; branch đọc bằng `git branch --show-current` ở folder đó (hoặc lấy branch của pane nếu pane đang đứng đúng folder).
 
 Chưa đổi: `project-settings`, `project-scripts`, `status-usage` (post-create) vẫn dùng `space.folder`.

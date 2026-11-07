@@ -8,7 +8,7 @@ import { repoFromRemote, githubHostChecker } from "./github.js";
 import { createTracker } from "./tracker.js";
 import { spaceFolder } from "./space-folder.js";
 import { translator, relative, effectiveLang } from "./i18n.js";
-import { facts, steps, openThreads, logTail, flowLine, flowRows, jobSteps, issueState, issueLabel, orgsOf, byOrg, reposOf, byRepo } from "./present.js";
+import { facts, steps, openThreads, logTail, flowLine, flowRows, jobSteps, issueState, issueLabel } from "./present.js";
 import { parseDiff, commentTarget, withComments } from "./diff.js";
 import { parseDuration, sanitize } from "./text.js";
 
@@ -122,21 +122,24 @@ export default class PrFlow extends View {
         ciWaitMs: parseDuration(p.ci_wait, 120_000),
         aiChecks: (Array.isArray(p.ai_checks) ? p.ai_checks : []).map((x) => String(x).toLowerCase()),
       },
-      remoteOf: async (cwd, on) => {
+      remoteOf: (this.remoteOf = async (cwd, on) => {
         const r = await exec("git", ["--no-optional-locks", "remote", "get-url", "origin"], { cwd, on: on ?? undefined });
         return r.code === 0 ? repoFromRemote(r.stdout, { isGithubHost, on }) : null;
-      },
+      }),
       store: {
         load: () => { try { return JSON.parse(localStorage.getItem("tracked") ?? "{}"); } catch { return {}; } },
         save: (data) => localStorage.setItem("tracked", JSON.stringify(data)),
       },
     });
+    // Each space keeps its own list state (like Issues): filters, the open PR and issue, in
+    // localStorage "spaces". The list only ever shows the repo of the space's fixed folder.
     this.url = null; // the open PR; null shows the list
     this.selected = 0;
-    try { this.view = { state: "open", scope: "mine", ...JSON.parse(localStorage.getItem("view") ?? "{}") }; } catch { this.view = { state: "open", scope: "mine" }; }
+    this.view = { state: "open", scope: "mine" };
+    try { this.states = JSON.parse(localStorage.getItem("spaces") ?? "{}") ?? {}; } catch { this.states = {}; }
+    this.cur = undefined; // the space whose state is loaded
+    this.spaceRepos = new Map(); // on:folder -> repo, null (none), or "pending"
     this.tracker.setView(this.view);
-    this.org = localStorage.getItem("org") || null; // the owner the list shows; null: all
-    this.repo = localStorage.getItem("repo") || null; // within it, one repo; null: all of the owner's
     this.logs = new Map(); // run id -> { name, runId, repo, tail, full, failed }
     this.opened = new Set(); // timeline rows showing their steps or checks
     this.filesFold = new Map(); // url -> whether the changed files are showing, once you chose
@@ -165,11 +168,7 @@ export default class PrFlow extends View {
 
   command(name, cx) {
     const cards = this.shown(), card = this.url ? this.current() : cards[this.selected];
-    // pr-flow.org:<owner> shows one owner's PRs; pr-flow.org alone shows all.
-    // pr-flow.repo:<owner/name> shows one repo (and chooses its owner).
-    if (String(name).startsWith("org")) this.setOrg(String(name).split(":")[1] || null);
-    else if (String(name).startsWith("repo")) { const repo = String(name).split(":")[1] || null; if (repo) this.setOrg(repo.split("/")[0]); this.setRepo(repo); }
-    else if (name === "next") this.select(Math.min(this.selected + 1, cards.length - 1));
+    if (name === "next") this.select(Math.min(this.selected + 1, cards.length - 1));
     else if (name === "prev") this.select(this.selected - 1);
     else if (name === "open" && card) this.openPr(card.url, cx);
     else if (name === "back") this.back(cx);
@@ -205,7 +204,12 @@ export default class PrFlow extends View {
 
   openIssue(url, cx) {
     this.issueUrl = url;
+    this.save();
     this.handle.focus();
+    this.fetchIssue(url, cx);
+  }
+
+  fetchIssue(url, cx) {
     cx.spawn(async (cx) => {
       try { this.issueData.set(url, await this.gh.fetchIssue(url)); }
       catch { if (!this.issueData.has(url)) this.issueData.set(url, { failed: true }); }
@@ -259,12 +263,65 @@ export default class PrFlow extends View {
     });
   }
 
+  // ---------- per-space state ----------
+  snapshot() {
+    return { view: this.view, url: this.url, selectedUrl: this.selectedUrl ?? null, issueUrl: this.issueUrl };
+  }
+
+  save() {
+    if (this.cur) this.states[this.cur] = this.snapshot();
+    localStorage.setItem("spaces", JSON.stringify(this.states));
+  }
+
+  // Swaps in the shown space's state; render() calls it, so it never notifies (the repo lookup is spawned).
+  syncSpace(cx) {
+    const space = spaces().find((s) => s.active) ?? null, id = space?.id ?? null;
+    if (id !== this.cur) {
+      if (this.cur) this.states[this.cur] = this.snapshot();
+      this.cur = id;
+      const s = (id && this.states[id]) || { view: { state: "open", scope: "mine" }, url: null, selectedUrl: null, issueUrl: null };
+      const viewChanged = JSON.stringify(s.view) !== JSON.stringify(this.view);
+      Object.assign(this, { view: s.view ?? { state: "open", scope: "mine" }, url: s.url ?? null, selectedUrl: s.selectedUrl ?? null, issueUrl: s.issueUrl ?? null, selected: 0, settingsOpen: false });
+      if (viewChanged) this.tracker.setView(this.view);
+      if (this.issueUrl && !this.issueData.has(this.issueUrl)) this.fetchIssue(this.issueUrl, cx);
+      if (id) localStorage.setItem("spaces", JSON.stringify({ ...this.states, [id]: this.snapshot() }));
+    }
+    // The repo of the space's fixed folder, looked up once per folder.
+    const key = this.repoKey();
+    if (key && !this.spaceRepos.has(key)) {
+      const folder = spaceFolder(space), on = space.machine ?? null;
+      this.spaceRepos.set(key, "pending");
+      cx.spawn(async (cx) => {
+        this.spaceRepos.set(key, await this.remoteOf(folder, on).catch(() => null));
+        cx.notify();
+      });
+    }
+  }
+
+  repoKey() {
+    const space = spaces().find((s) => s.active), folder = spaceFolder(space);
+    return folder ? `${space.machine ?? ""}:${folder}` : null;
+  }
+
+  // "owner/name", null (not a GitHub repo, or no folder) or "pending".
+  spaceRepo() {
+    const key = this.repoKey();
+    return key ? this.spaceRepos.get(key) ?? "pending" : null;
+  }
+
+  // The tracker's cards of this space's repo only.
+  repoCards() {
+    const repo = this.spaceRepo();
+    return repo && repo !== "pending" ? this.tracker.cards().filter((c) => String(c.repo) === repo) : [];
+  }
+
   current() {
     return this.url ? this.tracker.cards().find((c) => c.url === this.url) ?? null : null;
   }
 
   openPr(url, cx) {
     this.url = url;
+    this.save();
     this.handle.focus();
     this.syncLog(cx);
     cx.notify();
@@ -273,6 +330,7 @@ export default class PrFlow extends View {
   back(cx) {
     this.url = null;
     this.issueUrl = null;
+    this.save();
     this.handle.focus();
     cx.notify();
   }
@@ -393,19 +451,19 @@ export default class PrFlow extends View {
   // of those the same way.
   // Open or merged, yours or everyone's. A card still loading has no state yet and stays.
   filtered() {
-    return this.tracker.cards().filter((c) => !c.pr || (c.pr.state === (this.view.state === "merged" ? "MERGED" : "OPEN") && (this.view.scope === "all" || c.mine !== false)));
+    return this.repoCards().filter((c) => !c.pr || (c.pr.state === (this.view.state === "merged" ? "MERGED" : "OPEN") && (this.view.scope === "all" || c.mine !== false)));
   }
 
   setView(patch) {
     this.view = { ...this.view, ...patch };
-    localStorage.setItem("view", JSON.stringify(this.view));
     this.tracker.setView(this.view);
     this.selected = 0;
     this.selectedUrl = null;
+    this.save();
   }
 
   viewBar(t) {
-    const cards = this.tracker.cards(), n = (state) => cards.filter((c) => c.pr?.state === state && (this.view.scope === "all" || c.mine !== false)).length, tr = this.t;
+    const cards = this.repoCards(), n = (state) => cards.filter((c) => c.pr?.state === state && (this.view.scope === "all" || c.mine !== false)).length, tr = this.t;
     return h_flex().id("view").h(36).flex_none().px(10).gap(4).items_center().border_b(1).border_color(t.border)
       .child(this.chip("v-open", tr("f_open"), n("OPEN"), this.view.state === "open", () => this.setView({ state: "open" }), t))
       .child(this.chip("v-merged", tr("f_merged"), n("MERGED"), this.view.state === "merged", () => this.setView({ state: "merged" }), t))
@@ -415,23 +473,7 @@ export default class PrFlow extends View {
   }
 
   shown() {
-    const owned = byOrg(this.filtered(), this.org);
-    return this.org ? byRepo(owned, this.repo) : owned;
-  }
-
-  setOrg(org) {
-    if (org !== this.org) this.setRepo(null);
-    this.org = org;
-    localStorage.setItem("org", org ?? "");
-    this.selected = 0;
-    this.selectedUrl = null;
-  }
-
-  setRepo(repo) {
-    this.repo = repo;
-    localStorage.setItem("repo", repo ?? "");
-    this.selected = 0;
-    this.selectedUrl = null;
+    return this.filtered();
   }
 
   chip(id, label, count, active, onPick, t) {
@@ -442,34 +484,12 @@ export default class PrFlow extends View {
       .when(count !== "", (e) => e.child(div().text_size(11).text_color(t.dim).child(String(count))));
   }
 
-  // One chip per owner under the header, when the list has more than one.
-  orgBar(all, t) {
-    const orgs = orgsOf(all);
-    if (orgs.length < 2) return null;
-    const on = orgs.some(([o]) => o === this.org) ? this.org : null;
-    return h_flex().id("orgs").h(36).flex_none().px(10).gap(4).items_center().border_b(1).border_color(t.border).overflow_x_scrollbar()
-      .child(this.chip("org-all", this.t("org_all"), all.length, on === null, () => this.setOrg(null), t))
-      .children(orgs.map(([org, count]) => this.chip(`org-${org}`, org, count, on === org, () => this.setOrg(org), t)));
-  }
-
-  // Under a chosen owner, one chip per repo of theirs, when they have more than one.
-  repoBar(all, t) {
-    if (!this.org) return null;
-    const owned = all.filter((c) => String(c.repo).split("/")[0] === this.org);
-    const repos = reposOf(owned);
-    if (repos.length < 2) return null;
-    const on = repos.some(([r]) => r === this.repo) ? this.repo : null;
-    return h_flex().id("repos").h(32).flex_none().px(10).gap(4).items_center().border_b(1).border_color(t.border).overflow_x_scrollbar()
-      .child(this.chip("repo-all", this.t("repo_all"), owned.length, on === null, () => this.setRepo(null), t))
-      .children(repos.map(([repo, count]) => this.chip(`repo-${repo}`, repo.split("/")[1], count, on === repo, () => this.setRepo(repo), t)));
-  }
-
   header(count, t) {
     const tr = this.t;
     return h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
       .child(div().font_semibold().child(tr("title")))
       .when(count > 0, (e) => e.child(div().px(6).rounded(5).bg(t.raised).text_size(11).text_color(t.muted).child(String(count))))
-      .child(div().flex_1())
+      .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim).child((() => { const r = this.spaceRepo(); return r && r !== "pending" ? r : ""; })()))
       .child(h_flex().id("settings").size(26).items_center().justify_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover))
         .on_click((_e, cx) => { this.settingsOpen = true; cx.notify(); })
         .child(icon("settings", 14, t.muted)))
@@ -511,22 +531,20 @@ export default class PrFlow extends View {
   list(t) {
     const tr = this.t, all = this.filtered(), cards = this.shown();
     if (!cards.length) {
-      const noGh = !this.ghReady;
+      const noGh = !this.ghReady, repo = this.spaceRepo();
+      const body = noGh ? tr("gh_body") : repo === "pending" ? "…" : !repo ? "This space's folder is not a GitHub repo." : `${repo} · ${tr("empty_body")}`;
       return v_flex().size_full().child(this.header(0, t)).child(this.viewBar(t))
         .child(v_flex().flex_1().items_center().justify_center().gap(6).px(24)
           .child(icon("merge", 22, t.dim))
           .child(div().pt(4).font_medium().child(tr(noGh ? "gh_title" : "empty_title")))
-          .child(div().text_center().text_size(12).text_color(t.dim).child(tr(noGh ? "gh_body" : "empty_body"))));
+          .child(div().text_center().text_size(12).text_color(t.dim).child(body)));
     }
     // The selection stays on its PR when a new one pushes the rows down.
     const kept = cards.findIndex((c) => c.url === this.selectedUrl);
     this.selected = kept >= 0 ? kept : Math.min(this.selected, cards.length - 1);
     this.selectedUrl = cards[this.selected].url;
     const error = this.tracker.lastError();
-    const bar = this.orgBar(all, t), repoBar = bar && this.repoBar(all, t);
     return v_flex().size_full().child(this.header(cards.length, t)).child(this.viewBar(t))
-      .when(Boolean(bar), (e) => e.child(bar))
-      .when(Boolean(repoBar), (e) => e.child(repoBar))
       .child(v_flex().id("pr-list").flex_1().min_h(0).overflow_y_scrollbar().p(6).gap(2).children(cards.map((c, i) => this.row(c, i, t))))
       .when(Boolean(error), (e) => e.child(div().flex_none().px(14).py(6).border_t(1).border_color(t.border).truncate().text_size(11).text_color(t.ansi1).child(sanitize(error))));
   }
@@ -861,8 +879,9 @@ export default class PrFlow extends View {
     const shell = v_flex().size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13);
     // A pane already has Herdr's own frame around it.
     if (this.viewer) return v_flex().size_full().min_h(0).overflow_hidden().bg(t.background).text_color(t.foreground).text_size(13).child(this.renderViewer(t, cx));
+    this.syncSpace(cx);
     const card = this.url ? this.current() : null;
-    if (this.url && !card) this.url = null; // it closed while open
+    if (this.url && !card && this.tracker.cards().length) this.url = null; // it closed while open
     return shell.id("pr-flow").track_focus(this.handle).on_key_down((e, cx) => this.onKey(e, cx)).on_mouse_down("left", () => this.handle.focus())
       .child(this.settingsOpen ? this.settingsScreen(t) : card && this.issueUrl ? this.issueScreen(this.issueUrl, t) : card ? this.detail(card, t) : this.list(t));
   }
