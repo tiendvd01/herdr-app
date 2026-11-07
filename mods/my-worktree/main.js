@@ -4,13 +4,10 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, Scrollbar } from "gpui-base";
 import { run, props, closeOverlay, theme, spaces, panes, exec, home } from "herdr";
+import { spaceFolder } from "./space-folder.js";
 
-// Where a space is now: its first terminal's live folder, else where it was made.
-function place(s) {
-  if (!s) return null;
-  const tabs = new Set((s.tabs ?? []).map((c) => c.id));
-  return panes().find((p) => tabs.has(p.tab) && p.cwd)?.cwd || s.folder || null;
-}
+// A space's fixed folder (space-folder.js).
+const place = (s) => spaceFolder(s);
 
 // Checkouts go to <ROOT>/<repo>/<branch, slashes as dashes>.
 const ROOT = (home) => `${home}/.herdr/worktrees`;

@@ -5,7 +5,7 @@ Panel GitHub issues ở cột phải (cùng stack `panel-body` với Files và C
 ## Hành vi
 
 - **Mỗi space có trạng thái riêng**: repo, bộ lọc, từ khóa tìm, issue đang mở. Đổi space thì đổi theo. Trạng thái lưu trong `localStorage` khóa `spaces`.
-- **Repo** chỉ lấy tự động từ thư mục của terminal đang focus bằng `gh repo view`; không có ô gõ tay `owner/repo`. Thư mục không phải repo GitHub thì panel báo "This folder is not a GitHub repo."
+- **Repo** chỉ lấy tự động từ **folder cố định của space** (`docs/space-folder.md`) bằng `gh repo view`, terminal `cd` đi đâu cũng không đổi; không có ô gõ tay `owner/repo`. Thư mục không phải repo GitHub thì panel báo "This folder is not a GitHub repo."
 - **Bộ lọc**: Open / Closed / All, và Mine (`--assignee @me`). Space mới mặc định **Open + Mine** (`fresh()` trong `main.js`); space đã lưu giữ lựa chọn cũ. Tìm kiếm gửi bằng Enter. Danh sách tối đa 100 issue.
 - Bấm một issue để xem nội dung và comment (render markdown native, link mở bằng `open`). Có nút "GitHub ↗" (mở issue trên web). Mod không đóng/mở lại issue; việc đó làm trên web.
 - **Thu gọn comment**: bấm tiêu đề một comment (mũi tên ▾/▸) để gập/mở; comment gập chỉ còn tiêu đề kèm 80 ký tự đầu. Nút "Collapse comments" / "Expand comments" ở thanh trên gập hoặc mở tất cả. Trạng thái gập chỉ giữ trong bộ nhớ, theo space, và reset khi mở issue khác (khóa theo `c.id` của comment).

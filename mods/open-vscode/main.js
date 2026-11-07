@@ -6,6 +6,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex } from "gpui-base";
 import { appHome, closeOverlay, exec, focused, hc, props, readTextFile, spaces, theme, window as appWindow } from "herdr";
+import { spaceFolder } from "./space-folder.js";
 import { folderUri, protocolUrl, resolveHost } from "./uri.js";
 
 // A single-quoted PowerShell string.
@@ -42,7 +43,7 @@ export default class OpenVscode extends View {
     this.handle.focus();
     const f = focused();
     const space = spaces().find((s) => s.id === f?.space) ?? spaces().find((s) => s.active);
-    this.folder = f?.cwd || space?.folder || "";
+    this.folder = spaceFolder(space) || "";
     this.machine = space?.machine ?? null;
     this.error = this.folder ? null : "This space has no folder yet.";
     if (this.error) return;

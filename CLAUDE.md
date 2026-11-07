@@ -43,6 +43,9 @@ The window is `layouts/tiendvd-layout.json`, a tree of `row`/`column`/`stack`/`b
 
 ## Mod docs
 
+Each space has a fixed folder (`shared("space.folders")`, source `lib/space-folder.js`, copied into mods by `scripts/sync-github-lib.sh`); the panels follow it, not the focused terminal's cwd. See `docs/space-folder.md`.
+
+
 Per-mod behaviour notes live in `docs/mods/` (kept outside `mods/` because saving any file under a mod folder hot-reloads it): `processes` (Sessions dialog), `status-usage` (status bar, AI usage limits, post-create runner), `project-settings` (Ports + Worktree script), `issues`, `reviewer` (Changes). Update the matching file when changing a mod's behaviour.
 
 ## Git

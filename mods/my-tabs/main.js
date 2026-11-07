@@ -1,13 +1,12 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { spaces, panes, focused, exec, run, openOverlay, theme, window, shared, layout, settings } from "herdr";
+import { activePlace, pinSpaceFolders } from "./space-folder.js";
 
-// Same place the Changes panel reads: the focused pane's folder, on its machine.
+// Same place the Changes panel reads: the space's fixed folder, on its machine.
 function location() {
-  const space = spaces().find((s) => s.active), f = focused();
-  const pane = f?.pane ? panes().find(p => p.pane === f.pane) : null;
-  const on = f?.pane === null ? (f.terminal?.includes("/") ? f.terminal.split("/")[0] : null) : space?.machine ?? null;
-  return { cwd: pane?.cwd || f?.cwd || space?.folder, on };
+  const { cwd, on } = activePlace();
+  return { cwd, on };
 }
 const READ = ["--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "diff.autoRefreshIndex=false"];
 
@@ -25,6 +24,7 @@ export default class Tabs extends View {
     this.pressed = null;
     this.diff = null;
     cx.timer.every(3000, (cx) => this.refreshDiff(cx));
+    cx.timer.every(1000, () => pinSpaceFolders());
     this.refreshDiff(cx);
     this.panels = JSON.parse(localStorage.getItem("panels") ?? "{}");
   }
@@ -112,7 +112,7 @@ export default class Tabs extends View {
       ? Math.max(10, (root.traffic_lights[0] + 64) / settings().zoom - (sidebar?.hidden ? 0 : sidebar?.size?.px ?? 0))
       : 10;
     const panel = find(root, "panel"), body = find(root, "panel-body");
-    const enabled = [...(shared("workspace.panels") ?? ["files", "changes"]), "issues", "graph"];
+    const enabled = [...(shared("workspace.panels") ?? ["files", "changes"]), "issues", "graph", "prs"];
     this.syncPanel(space, panel, body, enabled);
     if (JSON.stringify(location()) !== this.diffKey) this.refreshDiff(cx, true);
     const d = this.diff;
@@ -141,6 +141,7 @@ export default class Tabs extends View {
       .when(enabled.includes("changes"), el => el.child(panelButton("changes", "Changes", "mods/changes/changes.svg", counts, d && (d.add || d.del) ? `+${d.add} −${d.del} uncommitted lines` : "no uncommitted changes")))
       .child(panelButton("issues", "Issues", "mods/issues/issue.svg", null, "GitHub issues of this repo"))
       .child(panelButton("graph", "Git", "mods/git-graph/icons/graph.svg", null, "commit graph of this repo"))
+      .child(panelButton("prs", "Pull requests", "mods/my-tabs/pull-request.svg", null, "open pull requests of your agents' branches"))
       .when(w?.buttons, el => el.child(button("minimize", w.platform === "windows" ? svg("mods/my-tabs/win-min.svg").size(16) : "−", () => run("window.minimize")))
         .child(button("maximize", w.platform === "windows" ? svg(`mods/my-tabs/${w.maximized ? "win-restore" : "win-max"}.svg`).size(16) : "□", () => run("window.maximize")))
         .child(button("close-window", w.platform === "windows" ? svg("mods/my-tabs/win-close.svg").size(16) : svg("mods/pane/close.svg").size(13), () => run("window.close"))));

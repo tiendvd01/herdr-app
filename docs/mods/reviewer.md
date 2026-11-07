@@ -4,7 +4,7 @@ Panel "Changes" ở cột phải, dùng để review diff như một pull reques
 
 ## Làm gì
 
-- Hiển thị diff của repo ở thư mục đang focus, có tô màu cú pháp (`highlight.js`, bảng màu `palette.js`).
+- Hiển thị diff của repo ở **folder cố định của space** (`docs/space-folder.md`), không theo thư mục terminal đang `cd`, có tô màu cú pháp (`highlight.js`, bảng màu `palette.js`).
 - **Phạm vi review** (menu ở header, phím `reviewer.scope` đổi vòng): `work` (thay đổi chưa commit), `last` (commit cuối + thay đổi chưa commit), `branch` (mọi thứ trên branch kể từ base, giống tab Files changed của PR).
 - **Comment inline**: bấm một dòng (bấm hai lần để chọn đoạn, bấm tiêu đề `@@` để chọn cả hunk) thì hộp comment hiện nổi ở góc trên phải của diff. Comment nằm ngay dưới các dòng đó, có thể comment nhiều file. Biểu tượng comment ở dòng file dùng cho cả file (ảnh, file bị xóa). `Esc` đóng hộp.
 - **Submit review** gửi toàn bộ comment kèm số dòng cho agent của space dưới dạng một tin nhắn (`ask.js`). Bản nháp lưu trong shared `reviewer.drafts`; trạng thái đã gửi ở `reviewer.sent`.

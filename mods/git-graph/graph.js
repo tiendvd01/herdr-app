@@ -1,10 +1,11 @@
 // The graph itself: Git Graph's table (graph, description, date, author,
-// commit) for the focused pane's repository, or `props.folder` when opened as
+// commit) for the space's fixed folder (space-folder.js), or `props.folder` when opened as
 // a pane. Labels take double-clicks (checkout) and right-clicks (menus).
 import { div, svg, PathBuilder } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, v_virtual_list } from "gpui-base";
 import { spaces, panes, focused, exec, watchFolder, readTextFile, theme, settings, props, shared, setShared, openOverlay, home, notify, knownAgents, updates } from "herdr";
 import { layoutLanes } from "./lanes.js";
+import { activePlace } from "./space-folder.js";
 import { READ, STATUS, UNCOMMITTED, LABEL, logArgs, parseLog, parseStatus, withUncommitted, labelsOf, hitLabel,
   menuFor, menuHeight, fileArgs, joinFiles, diffArgs, diffRows } from "./git.js";
 import { perform, openDialog, showChanges } from "./act.js";
@@ -14,10 +15,8 @@ import { depthOf, unsearched, findArgs, parseFound, REPO_STATUS, LATEST_TAG, FET
 
 function location(folder) {
   if (folder) return { cwd: folder, on: null };
-  const space = spaces().find((s) => s.active), f = focused();
-  const pane = f?.pane ? panes().find((p) => p.pane === f.pane) : null;
-  const on = f?.pane === null ? (f.terminal?.includes("/") ? f.terminal.split("/")[0] : null) : space?.machine ?? null;
-  return { cwd: pane?.cwd || f?.cwd || space?.folder, on };
+  const { cwd, on } = activePlace();
+  return { cwd, on };
 }
 
 const PAGE = 300, ROW = 24, LANE = 12, PAD = 6, DIFF_ROW = 20;
