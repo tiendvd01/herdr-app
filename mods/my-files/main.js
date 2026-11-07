@@ -3,6 +3,7 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState, TextView } from "gpui-base";
 import { spaces, panes, focused, exec, run, readTextFile, watchFolder, theme, settings, window } from "herdr";
 import { activePlace } from "./space-folder.js";
+import { iconButton, backButton, chip } from "./panel-ui.js";
 
 function location() {
   const { space, cwd, on } = activePlace();
@@ -152,12 +153,9 @@ export default class Files extends View {
     run("tab.new", { name: path.split("/").pop(), folder: this.root, argv: ["nvim", `${this.root}/${path}`] });
   }
 
-  editButton(path, t) {
-    return div().id(`edit-${path}`).size(20).flex_none().flex().items_center().justify_center().rounded(5).cursor_pointer()
-      .text_color(t.dim).hover(s => s.bg(t.selected).text_color(t.foreground)).tooltip("Edit in neovim (new tab)")
-      .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-      .on_click((_e, cx) => { cx.stop_propagation(); this.edit(path); })
-      .child(svg("mods/my-files/edit.svg").size(13));
+  editButton(path, small) {
+    return iconButton(`edit-${path}`, "edit", "Edit in Neovim (new tab)", (_e, cx) => { cx.stop_propagation(); this.edit(path); }, { small })
+      .on_mouse_down("left", (_e, cx) => cx.stop_propagation());
   }
 
   rows(prefix, depth, out, t) {
@@ -170,7 +168,7 @@ export default class Files extends View {
         .child(entry.dir ? svg(`mods/my-files/chevron-${open ? "down" : "right"}.svg`).size(12).flex_none().text_color(t.dim) : div().w(12).flex_none())
         .child(svg(`mods/my-files/${entry.dir ? "folder" : "file"}.svg`).size(14).flex_none().text_color(t.muted))
         .child(div().flex_1().min_w(0).truncate().child(entry.name))
-        .when(!entry.dir, el => el.child(this.editButton(path, t)))
+        .when(!entry.dir, el => el.child(this.editButton(path, true)))
         .when(Boolean(mark), el => el.child(div().text_size(11).text_color(mark === "A" ? t.ansi2 : mark === "D" || mark === "U" ? t.ansi1 : t.blocked).child(mark))));
       if (entry.dir && open) this.rows(path, depth + 1, out, t);
     }
@@ -182,13 +180,12 @@ export default class Files extends View {
     const t = theme();
     return v_flex().id("files").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
       .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
-        .when(Boolean(this.file), el => el.child(div().id("files-back").w(20).cursor_pointer().text_color(t.muted).on_click((_e, cx) => { this.show(null); cx.notify(); }).child("←")))
-        .child(div().font_semibold().child("Files"))
+        .when(Boolean(this.file), el => el.child(backButton("files-back", "Files", (_e, cx) => { this.show(null); cx.notify(); })))
+        .when(!this.file, el => el.child(div().font_semibold().child("Files")))
         .when(Boolean(this.file && this.md !== null), el => el.child(h_flex().id("files-mdmode").gap(2).flex_none()
-          .children([["Preview", true], ["Source", false]].map(([label, v]) => div().id(`files-mode-${label}`).px(8).py(2).rounded(5).text_size(11.5).cursor_pointer()
-            .bg(this.mdPreview === v ? t.selected : t.background).text_color(this.mdPreview === v ? t.foreground : t.muted)
-            .on_click((_e, cx) => { this.mdPreview = v; cx.notify(); }).child(label)))))
-        .when(Boolean(this.file), el => el.child(this.editButton(this.file, t)))
+          .children([["Preview", true], ["Source", false]].map(([label, v]) =>
+            chip(`files-mode-${label}`, label, this.mdPreview === v, (_e, cx) => { this.mdPreview = v; cx.notify(); })))))
+        .when(Boolean(this.file), el => el.child(this.editButton(this.file, false)))
         .child(div().flex_1().min_w(0).truncate().text_right().text_size(12).text_color(t.dim).child(this.file ?? this.root?.split(/[\\/]/).pop() ?? "")))
       .when(!this.file, el => el.child(v_flex().id("files-tree").flex_1().min_h(0).overflow_y_scrollbar().p(6).children(this.rows("", 0, [], t))
         .when(Boolean(this.error) || !this.entries.get("")?.length, el => el.child(div().p(8).text_size(12).text_color(t.dim).child(this.error || (this.loading ? "Loading files…" : this.root ? "No files" : "No folder"))))

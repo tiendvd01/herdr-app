@@ -10,6 +10,7 @@ import { READ, STATUS, UNCOMMITTED, LABEL, logArgs, parseLog, parseStatus, withU
   menuFor, menuHeight, fileArgs, joinFiles, diffArgs, diffRows } from "./git.js";
 import { perform, openDialog, showChanges } from "./act.js";
 import { icon } from "./menu.js";
+import { iconButton, backButton, chip, textButton, icon as uiIcon } from "./panel-ui.js";
 import { available, check, openUpdate, newer } from "./update.js";
 import { depthOf, unsearched, findArgs, parseFound, REPO_STATUS, LATEST_TAG, FETCH, REMOTES, fetchable, parseRepoStatus, parseRemotes, webUrl, syncOf } from "./repos.js";
 
@@ -627,11 +628,17 @@ export class Graph {
         .child(div().w(this.cols.hash).flex_none().font_family(mono).text_size(11).text_color(t.dim).child(commit.uncommitted ? "*" : commit.hash.slice(0, 8))));
   }
 
-  iconButton(id, glyph, tip, active, action, t) {
+  // A toolbar icon (panel-ui's iconButton) that keeps the press from reaching the header.
+  toolButton(id, name, tip, action, active = false) {
+    return iconButton(id, name, tip, action, { active }).on_mouse_down("left", (_e, cx) => cx.stop_propagation());
+  }
+
+  // Icon plus its words (Fetch all, and its progress while running).
+  labeledButton(id, name, text, active, action, t) {
     return h_flex().id(id).h(24).px(6).gap(5).flex_none().items_center().rounded(6).text_size(11.5).cursor_pointer()
       .text_color(active ? t.foreground : t.muted).when(active, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover).text_color(t.foreground))
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation()).on_click(action)
-      .child(svg(icon(glyph)).size(13).flex_none()).when(Boolean(tip), (e) => e.child(tip));
+      .child(uiIcon(name, 14).flex_none()).child(text);
   }
 
   header(t) {
@@ -644,9 +651,7 @@ export class Graph {
     return h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
       .when(!repo, (e) => e.child(div().text_size(13).font_semibold().child(ws ? "Manygit" : "Git")))
       .when(Boolean(repo), (e) => e
-        .child(h_flex().id("graph-back").h(24).pl(2).pr(6).gap(3).flex_none().items_center().rounded(6).cursor_pointer()
-          .hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.back(cx))
-          .child(svg(icon("back")).size(14).flex_none().text_color(t.muted)).child(div().text_size(13).font_semibold().child("Manygit")))
+        .child(backButton("graph-back", "Manygit", (_e, cx) => this.back(cx)))
         .child(h_flex().id("graph-repository").h(22).px(7).gap(5).min_w(0).items_center().rounded(6).cursor_pointer()
           .bg(this.picking ? t.selected : t.raised).text_color(t.foreground).hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.togglePicker(cx))
           .child(svg(icon("folder")).size(12).flex_none()).child(div().min_w(0).truncate().text_size(11.5).font_semibold().child(repo.name))))
@@ -658,13 +663,15 @@ export class Graph {
       .when(Boolean(available()), (e) => e.child(h_flex().id("graph-update").h(24).px(7).gap(5).flex_none().items_center().rounded(6).text_size(11.5)
         .cursor_pointer().text_color(t.accent).hover((s) => s.bg(t.hover)).on_mouse_down("left", (_e, cx) => cx.stop_propagation())
         .on_click(() => openUpdate()).child(div().size(6).rounded(3).bg(t.accent)).child("Update Graph")))
-      .when(ready && this.remoteNames?.length > 0, (e) => e.child(this.iconButton("graph-fetch", "fetch", this.fetching ? "Fetching…" : null, false, (_e, cx) => this.fetch(cx), t)))
+      .when(ready && this.remoteNames?.length > 0, (e) => e.child(this.fetching
+        ? this.toolButton("graph-fetch", "spinner", "Fetching…", (_e, cx) => this.fetch(cx))
+        : this.toolButton("graph-fetch", "fetch", "Fetch", (_e, cx) => this.fetch(cx))))
       .when(this.state === "workspace", (e) => {
         const run = this.fetchAll?.root === ws.root ? this.fetchAll : null;
-        return e.child(this.iconButton("graph-fetch-all", "fetch", run ? `Fetching ${run.done}/${run.total}…` : "Fetch all", Boolean(run), (_e, cx) => this.fetchEvery(cx), t));
+        return e.child(this.labeledButton("graph-fetch-all", "fetch", run ? `Fetching ${run.done}/${run.total}…` : "Fetch all", Boolean(run), (_e, cx) => this.fetchEvery(cx), t));
       })
-      .when(this.state !== "nofolder", (e) => e.child(this.iconButton("graph-refresh", "refresh", null, false, (_e, cx) => this.refresh(cx), t)))
-      .when(settingsShown, (e) => e.child(this.iconButton("graph-settings", "settings", null, false, () => this.openSettings(), t)));
+      .when(this.state !== "nofolder", (e) => e.child(this.toolButton("graph-refresh", "refresh", "Refresh", (_e, cx) => this.refresh(cx))))
+      .when(settingsShown, (e) => e.child(this.toolButton("graph-settings", "settings", "Settings", () => this.openSettings())));
   }
 
   openSettings() {
@@ -742,18 +749,11 @@ export class Graph {
 
 
   toolbar(t) {
-    const segment = (id, text, on, action) => div().id(id).h(22).px(9).flex().items_center().rounded(5).text_size(11.5).cursor_pointer()
-      .bg(on ? t.raised : t.background).text_color(on ? t.foreground : t.muted).when(on, (e) => e.border_1().border_color(t.border))
-      .hover((s) => s.text_color(t.foreground)).on_click(action).child(text);
-    return h_flex().h(34).flex_none().px(10).gap(8).items_center().border_b(1).border_color(t.border)
-      .child(h_flex().p(2).gap(2).rounded(7).bg(t.background).border_1().border_color(t.border)
-        .child(segment("graph-all", "All branches", this.all, (_e, cx) => this.setScope(true, cx)))
-        .child(segment("graph-current", "Current", !this.all, (_e, cx) => this.setScope(false, cx))))
-      .child(h_flex().id("graph-remotes").h(24).px(6).gap(6).items_center().rounded(6).cursor_pointer().text_size(11.5).text_color(t.muted)
-        .hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => this.setRemotes(cx))
-        .child(div().size(13).rounded(3).border_1().border_color(this.remotes ? t.accent : t.input).when(this.remotes, (e) => e.bg(t.accent)).flex().items_center().justify_center()
-          .when(this.remotes, (e) => e.child(svg(icon("check")).size(10).text_color(t.accent_foreground))))
-        .child("Remotes"));
+    return h_flex().h(34).flex_none().px(10).gap(4).items_center().border_b(1).border_color(t.border)
+      .child(chip("graph-all", "All branches", this.all, (_e, cx) => this.setScope(true, cx)))
+      .child(chip("graph-current", "Current", !this.all, (_e, cx) => this.setScope(false, cx)))
+      .child(div().w(1).h(14).mx(4).flex_none().bg(t.border))
+      .child(chip("graph-remotes", "Remotes", this.remotes, (_e, cx) => this.setRemotes(cx)));
   }
 
   columns(t, width) {
@@ -796,13 +796,11 @@ export class Graph {
     const commit = this.commits[this.index.get(this.selected)], d = this.details;
     if (!commit) return div();
     const top = h_flex().h(32).flex_none().px(10).gap(6).items_center().border_b(1).border_color(t.border).text_size(11.5);
-    const close = div().id("graph-details-close").px(6).py(1).rounded(4).text_color(t.dim).cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground))
-      .on_click((_e, cx) => { this.selected = null; this.details = null; this.diff = null; cx.notify(); }).child("×");
+    const close = iconButton("graph-details-close", "close", "Close", (_e, cx) => { this.selected = null; this.details = null; this.diff = null; cx.notify(); });
     if (this.diff) {
       const rows = this.diff.rows;
       return v_flex().flex_none().relative().h(this.detailsHeight()).border_t(1).border_color(t.border).child(this.resizeHandle(t))
-        .child(top.child(div().id("graph-diff-back").px(6).py(1).rounded(4).text_color(t.muted).cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground))
-            .on_click((_e, cx) => { this.diff = null; cx.notify(); }).child("← Files"))
+        .child(top.child(backButton("graph-diff-back", "Files", (_e, cx) => { this.diff = null; cx.notify(); }))
           .child(div().flex_1().min_w(0).truncate().font_family(mono).text_color(t.foreground).child(this.diff.path)).child(close))
         .child(div().flex_1().min_h(0).relative().font_family(mono).text_size(11)
           .when(!rows, (e) => e.child(div().p(12).text_color(t.dim).child("Loading diff…")))
@@ -815,8 +813,7 @@ export class Graph {
     const body = v_flex().id("graph-details").flex_1().min_h(0).overflow_y_scrollbar().px(14).py(10).gap(4);
     const pane = (content) => v_flex().flex_none().relative().h(this.detailsHeight()).border_t(1).border_color(t.border).child(this.resizeHandle(t))
       .child(top.child(div().flex_1().text_color(t.muted).child(title))
-        .when(Boolean(commit.uncommitted), (e) => e.child(div().id("graph-open-changes").px(6).py(1).rounded(4).text_color(t.accent).cursor_pointer().hover((s) => s.bg(t.hover))
-          .on_click(() => showChanges()).child("Open Changes")))
+        .when(Boolean(commit.uncommitted), (e) => e.child(textButton("graph-open-changes", "Open Changes", () => showChanges(), { color: t.accent })))
         .child(close))
       .child(content);
     if (d?.error) return pane(body.child(div().text_color(t.ansi1).child(d.error)));

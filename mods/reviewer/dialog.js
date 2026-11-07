@@ -10,8 +10,9 @@
 // first); a dropdown picks another. The context is read-only: it scrolls
 // both ways and can be copied.
 // Enter or cmd-enter sends, Esc closes. Commands: "reviewer.send", "reviewer.close".
-import { div, svg } from "gpui-kit";
+import { div } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea, Popover } from "gpui-base";
+import { icon, iconButton, button } from "./panel-ui.js";
 import { agents, focused, spaces, knownAgents, hc, run, notify, props, closeOverlay, theme, settings, nextCommand, setShared } from "herdr";
 
 // Where agents are looked up and started: the space's machine, which may not be this one.
@@ -102,19 +103,14 @@ export class Dialog {
   render(cx) {
     const t = theme(), list = this.candidates(), agent = this.target(), isTarget = (a) => Boolean(agent) && a.address === agent.address;
     const name = (a) => `${a.program?.name ?? a.app ?? a.address}`;
-    const button = (id, text, primary, action, disabled) => h_flex().id(id).h(32).px(14).items_center().rounded(8).border_1()
-      .border_color(primary ? t.solid : t.input).bg(primary ? t.solid : t.raised).text_color(primary ? t.solid_foreground : t.foreground).text_size(12.5).font_medium()
-      .when(disabled, (e) => e.opacity(0.5)).when(!disabled, (e) => e.cursor_pointer().hover((s) => s.opacity(0.88)).on_click(action)).child(text);
     const contextLines = this.context.split("\n"), shown = contextLines.slice(0, 600);
     const contextWidth = Math.max(...shown.map((l) => l.length)) * 6.7 + 24;
-    const link = (id, text, action, icon) => h_flex().id(id).h(20).px(5).gap(4).items_center().rounded(4).text_size(11).text_color(t.dim).cursor_pointer().hover((s) => s.text_color(t.foreground).bg(t.hover)).on_click(action)
-      .when(Boolean(icon), (e) => e.child(svg(`mods/reviewer/${icon}.svg`).size(12))).child(text);
     const dot = (a) => div().size(7).rounded(4).bg(t[DOT[a.status]] ?? t.unknown);
     // The target as a select-looking box; with a chevron when there is a list to open.
     const agentBox = (a, opens) => h_flex().id("to-box").h(28).px(9).gap(7).items_center().rounded(7).border_1().border_color(this.choosing ? t.accent : t.input).bg(t.raised)
       .when(opens, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)))
       .child(dot(a)).child(div().text_size(12).child(`${name(a)} · ${a.tab_name}`)).child(div().text_size(10.5).text_color(t.dim).child(a.status))
-      .when(opens, (e) => e.child(svg("mods/reviewer/chevron-down.svg").size(12).text_color(t.dim)));
+      .when(opens, (e) => e.child(icon("chevron-down", 12).text_color(t.dim)));
     return v_flex().id("ask-agent").track_focus(this.handle)
       .on_key_down((e, cx) => {
         if (e.key === "escape") { this.close(); cx.stop_propagation(); }
@@ -139,7 +135,7 @@ export class Dialog {
                       .child(dot(a))
                       .child(div().flex_1().text_size(12).child(`${name(a)} · ${a.tab_name}`))
                       .child(div().text_size(10.5).text_color(t.dim).child(a.status))
-                      .child(isTarget(a) ? svg("mods/reviewer/check.svg").size(12).text_color(t.accent) : div().w(12)))))
+                      .child(isTarget(a) ? icon("check", 12).text_color(t.accent) : div().w(12)))))
               : agentBox(agent, false)))
       .child(Textarea.new(this.input).w_full().px(10).py(8).rounded(9).border_1().border_color(t.input).bg(t.background).text_size(12.8).text_color(t.foreground))
       // The context, read-only: what the caller built (a review, a hunk). Scrolls both ways.
@@ -147,7 +143,7 @@ export class Dialog {
         .child(h_flex().items_center().gap(6)
           .child(div().text_size(11).text_color(t.dim).child(`Sent after your note · ${contextLines.length} lines · read-only`))
           .child(div().flex_1())
-          .child(link("context-copy", this.copied ? "Copied" : "Copy", (_e, cx) => { try { cx.write_to_clipboard(this.context); this.copied = true; } catch (e) { this.error = `Copy failed: ${e}`; } cx.notify(); }, this.copied ? "check" : "copy")))
+          .child(iconButton("context-copy", this.copied ? "check" : "copy", this.copied ? "Copied" : "Copy", (_e, cx) => { try { cx.write_to_clipboard(this.context); this.copied = true; } catch (e) { this.error = `Copy failed: ${e}`; } cx.notify(); })))
         .child(div().id("ask-context-x").flex_1().min_h(0).rounded(8).border_1().border_color(t.border).bg(t.background).overflow_x_scrollbar()
           .child(v_flex().id("ask-context").h_full().min_w(contextWidth).overflow_y_scrollbar().p(8)
             .font_family(settings().font_family ?? "JetBrains Mono").text_size(11).text_color(t.muted).whitespace_nowrap()
@@ -159,7 +155,7 @@ export class Dialog {
       .child(h_flex().items_center().gap(8)
         .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(this.confirm ? t.blocked : t.dim)
           .child(this.confirm && agent ? `${name(agent)} is ${agent.status}. Send anyway? The text is typed into its input now.` : agent ? `cmd-enter sends · goes to ${name(agent)} as one message` : "cmd-enter sends"))
-        .child(button("ask-cancel", "Cancel", false, () => this.close()))
-        .child(button("ask-send", this.sending ? "Sending…" : this.confirm ? "Send anyway" : agent ? "Send" : "Start agent", true, (_e, cx) => this.send(cx), this.sending)));
+        .child(button("ask-cancel", "Cancel", () => this.close(), { large: true }))
+        .child(button("ask-send", this.sending ? "Sending…" : this.confirm ? "Send anyway" : agent ? "Send" : "Start agent", (_e, cx) => this.send(cx), { large: true, primary: true, disabled: this.sending })));
   }
 }

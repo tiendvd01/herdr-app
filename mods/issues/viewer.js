@@ -8,6 +8,7 @@
 // keys: + - 0 (100%) f (fit), Esc closes.
 import { div, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
+import { iconButton } from "./panel-ui.js";
 import { exec, props, closeOverlay, theme } from "herdr";
 import * as fs from "fs/promises";
 
@@ -68,7 +69,7 @@ export class Viewer {
       .child(tool("z-fit", "Fit", () => this.fit(), "Fit to window (f)"))
       .child(tool("z-100", "100%", () => this.actual(), "Actual size (0)"))
       .child(div().w(1).h(14).mx(4).bg(t.border))
-      .child(tool("v-close", "×", () => this.close(), "Close (Esc)"));
+      .child(iconButton("v-close", "close", "Close (Esc)", (_e, cx) => { this.close(); cx.notify(); }));
 
     const stage = div().id("stage").flex_1().min_h(0).relative().overflow_hidden().bg(t.background)
       .when(Boolean(this.drag), (e) => e.cursor_grabbing()).when(!this.drag, (e) => e.cursor_grab())

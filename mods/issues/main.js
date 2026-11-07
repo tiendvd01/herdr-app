@@ -7,10 +7,11 @@
 //
 // render() never calls cx.notify(): work it needs (detect the repo, load
 // the list, swap the space) is spawned and notifies when it finishes.
-import { View, div, svg, image } from "gpui-kit";
+import { View, div, image } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextView } from "gpui-base";
 import { exec, theme, focused, spaces, appHome, home, notify, settings, props, openOverlay, readTextFile, writeTextFile } from "herdr";
 import { Viewer } from "./viewer.js";
+import { icon, iconButton, backButton, chip, button, textButton } from "./panel-ui.js";
 import { spaceFolder } from "./space-folder.js";
 import { ghAccounts } from "./gh-account.js";
 
@@ -321,10 +322,8 @@ export default class Issues extends View {
       props: { viewer: true, title: this.st().detail?.title ?? "", path: d.path, w: d.w, h: d.h, mmd: d.mmd, dark: d.dark, hires: d.hires, hiresPath: d.hiresPath } });
     return div().id(`dg-${id}`).relative().p(6).rounded(6).bg(t.surface).cursor_pointer().on_click(open)
       .child(image(d.path).w(w).h(h))
-      .child(h_flex().id(`dg-open-${id}`).absolute().top(6).right(6).h(22).px(7).gap(4).items_center().rounded(5)
-        .bg(t.raised).border_1().border_color(t.border).text_size(11).text_color(t.muted)
-        .hover((s) => s.text_color(t.foreground).bg(t.hover)).tooltip("Open in a dialog to zoom")
-        .on_click((_e, cx) => { cx.stop_propagation(); open(); }).child("⤢ Open"));
+      .child(div().absolute().top(6).right(6).rounded(6).bg(t.raised).border_1().border_color(t.border)
+        .child(iconButton(`dg-open-${id}`, "maximize", "Open in a dialog to zoom", (_e, cx) => { cx.stop_propagation(); open(); })));
   }
 
   // Markdown with its mermaid blocks drawn as pictures.
@@ -340,7 +339,7 @@ export default class Issues extends View {
           ? v_flex().gap(4).child(div().text_size(11).text_color(t.ansi1).whitespace_normal().child(`Diagram error: ${d.error}`))
             .child(TextView.markdown(`${id}-${i++}`, "```\n" + m[1] + "\n```"))
           : h_flex().gap(6).p(6).items_center().text_size(11).text_color(t.dim)
-            .child(svg("mods/workspace-chrome/spinner.svg").size(12).text_color(t.working).spin(900)).child("Rendering diagram…"));
+            .child(icon("spinner", 12).text_color(t.working).spin(900)).child("Rendering diagram…"));
       last = m.index + m[0].length;
     }
     if (last < text.length) parts.push(TextView.markdown(`${id}-${i++}`, text.slice(last)).selectable(true).on_link_click((url) => exec("open", [url])));
@@ -360,18 +359,10 @@ export default class Issues extends View {
     const repo = this.repo(), s = this.st();
     if (repo && !s.open) this.refresh(cx, false);
     const ui = {
-      button: (id, label, primary, action) => div().id(id).h(24).px(10).flex().flex_none().items_center().rounded(6)
-        .bg(primary ? t.solid : t.raised).text_color(primary ? t.solid_foreground : t.foreground).text_size(12).font_medium()
-        .cursor_pointer().hover((st) => st.opacity(0.88)).on_click(action).child(label),
-      toggle: (id, label, on, action) => div().id(id).h(20).px(8).flex().flex_none().items_center().rounded(5).cursor_pointer()
-        .when(on, (e) => e.bg(t.selected).text_color(t.foreground)).when(!on, (e) => e.text_color(t.dim).hover((st) => st.bg(t.hover).text_color(t.foreground)))
-        .on_click(action).child(label),
-      link: (id, label, action) => div().id(id).h(24).px(8).flex().flex_none().items_center().rounded(6).text_size(12).text_color(t.dim)
-        .cursor_pointer().hover((st) => st.bg(t.hover).text_color(t.foreground)).on_click(action).child(label),
       pill: (text) => div().h(24).px(8).flex().flex_none().items_center().rounded(6).border_1().border_color(t.border).text_size(12).text_color(t.muted).child(text),
       // Centered spinner + label while nothing is on screen yet (same look as pr-flow).
       loading: (label) => v_flex().flex_1().min_h(0).items_center().justify_center().gap(8)
-        .child(svg("mods/workspace-chrome/spinner.svg").size(18).text_color(t.dim).spin(900))
+        .child(icon("spinner", 18).text_color(t.dim).spin(900))
         .child(div().text_size(12).text_color(t.dim).child(label)),
       subbar: () => h_flex().h(28).flex_none().px(12).gap(4).items_center().border_b(1).border_color(t.border).text_size(11),
     };
@@ -388,12 +379,13 @@ export default class Issues extends View {
     const repoBox = h_flex().min_w(0).h(24).px(8).items_center().rounded(6).border_1().border_color(t.border).bg(t.raised)
       .tooltip(`The GitHub repo of this space's folder: ${this.folder() ?? "none"}`)
       .child(div().min_w(0).truncate().text_size(12).child(repo ?? "No repo"));
+    const busy = s.open ? this.inflight.has(`issues:${keyOf(s.open.repo, s.open.number)}`) : s.loading;
     const header = h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
       .child(div().flex_none().font_semibold().child("Issues"))
       .when(!s.open && s.list.length > 0, (e) => e.child(ui.pill(`${s.list.length}${s.list.length >= 100 ? "+" : ""}`)))
       .child(repoBox)
       .child(div().flex_1())
-      .child(ui.link("reload", "Reload", (_e, cx) => { if (s.open) this.show(s.open.number, cx, s.open.repo, true); else this.refresh(cx, true); cx.notify(); }));
+      .child(iconButton("reload", busy ? "spinner" : "refresh", busy ? "Loading…" : "Reload", (_e, cx) => { if (s.open) this.show(s.open.number, cx, s.open.repo, true); else this.refresh(cx, true); cx.notify(); }));
 
     if (!repo && !s.open) return root.child(header).child(div().p(14).text_color(t.dim).whitespace_normal()
       .child("This folder is not a GitHub repo."));
@@ -402,13 +394,13 @@ export default class Issues extends View {
 
   renderList(s, t, ui, repo) {
     const filters = ui.subbar()
-      .child(ui.toggle("st-open", "Open", s.state === "open", (_e, cx) => this.setFilter({ state: "open" }, cx)))
-      .child(ui.toggle("st-closed", "Closed", s.state === "closed", (_e, cx) => this.setFilter({ state: "closed" }, cx)))
-      .child(ui.toggle("st-all", "All", s.state === "all", (_e, cx) => this.setFilter({ state: "all" }, cx)))
+      .child(chip("st-open", "Open", s.state === "open", (_e, cx) => this.setFilter({ state: "open" }, cx)))
+      .child(chip("st-closed", "Closed", s.state === "closed", (_e, cx) => this.setFilter({ state: "closed" }, cx)))
+      .child(chip("st-all", "All", s.state === "all", (_e, cx) => this.setFilter({ state: "all" }, cx)))
       .child(div().w(1).h(14).mx(4).bg(t.border))
-      .child(ui.toggle("mine", "Mine", s.mine, (_e, cx) => this.setFilter({ mine: !s.mine }, cx)))
+      .child(chip("mine", "Mine", s.mine, (_e, cx) => this.setFilter({ mine: !s.mine }, cx)))
       .child(div().flex_1())
-      .when(s.loading && Boolean(s.listAt), (e) => e.child(svg("mods/workspace-chrome/spinner.svg").size(12).text_color(t.dim).spin(900)))
+      .when(s.loading && Boolean(s.listAt), (e) => e.child(icon("spinner", 12).text_color(t.dim).spin(900)))
       .when(Boolean(s.listAt) && !s.loading, (e) => e.child(div().text_color(t.dim).tooltip("Shown from the cache; fetched again after a minute, or Reload").child(since(s.listAt))));
     const rows = s.list.map((i) => {
       const k = keyOf(repo, i.number);
@@ -425,8 +417,7 @@ export default class Issues extends View {
     const search = h_flex().flex_none().p(10).gap(8).border_t(1).border_color(t.border)
       .child(div().id("search-box").flex_1().min_w(0).h(32).px(10).flex().items_center().rounded(8).border_1().border_color(t.border).cursor_text()
         .child(Input.new(this.search).h_full().w_full().text_size(12).text_color(t.foreground)))
-      .child(div().id("search-go").h(32).px(14).flex().items_center().rounded(8).bg(t.raised).text_color(t.foreground).text_size(12).cursor_pointer()
-        .hover((st) => st.opacity(0.88)).on_click((_e, cx) => { s.query = this.search.value().trim(); this.persist(); this.refresh(cx, true); cx.notify(); }).child("Search"));
+      .child(button("search-go", "Search", (_e, cx) => { s.query = this.search.value().trim(); this.persist(); this.refresh(cx, true); cx.notify(); }, { large: true }));
     return v_flex().flex_1().min_h(0)
       .child(filters)
       .when(Boolean(s.error), (e) => e.child(div().px(12).py(6).text_size(11).text_color(t.ansi1).whitespace_normal().child(s.error)))
@@ -441,17 +432,17 @@ export default class Issues extends View {
     const sum = this.sums[k], run = this.sumRun[k];
     const allFolded = (d?.comments ?? []).length > 0 && d.comments.every((c, i) => s.collapsed.has(c.id ?? `c-${i}`));
     const bar = ui.subbar()
-      .child(ui.toggle("back", "← Issues", false, (_e, cx) => this.back(cx)))
+      .child(backButton("back", "Issues", (_e, cx) => this.back(cx)))
       .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(`#${n}`))
-      .when(this.inflight.has(`issues:${k}`), (e) => e.child(svg("mods/workspace-chrome/spinner.svg").size(12).text_color(t.dim).spin(900)))
+      .when(this.inflight.has(`issues:${k}`), (e) => e.child(icon("spinner", 12).text_color(t.dim).spin(900)))
       .when(Boolean(s.detailAt) && !this.inflight.has(`issues:${k}`), (e) => e.child(div().px(4).text_color(t.dim).child(since(s.detailAt))))
       .when(Boolean(d), (e) => e
-        .when((d?.comments ?? []).length > 0, (x) => x.child(ui.toggle("fold-all", allFolded ? "Expand comments" : "Collapse comments", false, (_e, cx) => {
+        .when((d?.comments ?? []).length > 0, (x) => x.child(textButton("fold-all", allFolded ? "Expand comments" : "Collapse comments", (_e, cx) => {
           if (allFolded) s.collapsed.clear(); else for (const [i, c] of d.comments.entries()) s.collapsed.add(c.id ?? `c-${i}`);
           cx.notify();
         })))
-        .child(ui.toggle("summarize", run && !run.error ? "Summarizing…" : sum ? "Re-summarize" : "Summarize", false, (_e, cx) => this.summarize(cx)))
-        .child(ui.toggle("browser", "GitHub ↗", false, () => exec("open", [d.url]))));
+        .child(button("summarize", run && !run.error ? "Summarizing…" : sum ? "Re-summarize" : "Summarize", (_e, cx) => this.summarize(cx)))
+        .child(iconButton("browser", "external", "Open on GitHub", () => exec("open", [d.url]))));
     const body = v_flex().id("detail").flex_1().min_h(0).overflow_y_scrollbar().p(12).gap(10);
     if (!d && s.detailLoading) return v_flex().flex_1().min_h(0).child(bar).child(ui.loading(`Loading issue #${n}…`));
     if (!d) return v_flex().flex_1().min_h(0).child(bar).child(body.child(div().text_color(s.error ? t.ansi1 : t.dim).whitespace_normal().child(s.error ?? "")));
@@ -462,7 +453,7 @@ export default class Issues extends View {
       .child(h_flex().id(`ch-${id}`).px(10).py(5).gap(6).items_center().text_size(10.5).text_color(accent ? t.accent : t.dim)
         .when(!fold?.folded, (e) => e.border_b(1).border_color(t.border))
         .when(Boolean(fold), (e) => e.cursor_pointer().hover((x) => x.bg(t.hover)).on_click((_e, cx) => { fold.toggle(); cx.notify(); }))
-        .when(Boolean(fold), (e) => e.child(div().w(10).flex_none().child(fold.folded ? "▸" : "▾")))
+        .when(Boolean(fold), (e) => e.child(div().flex_none().child(icon(fold.folded ? "chevron-right" : "chevron-down", 12))))
         .child(div().flex_1().min_w(0).truncate().child(title))
         .when(fold?.folded, (e) => e.child(div().flex_none().text_color(t.dim).child("folded"))))
       .when(!fold?.folded, (e) => e.child(div().px(10).py(8).text_size(12.5).child(this.markdown(`${sid}-${k}-${id}`, md, t, cx))));

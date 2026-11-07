@@ -1,12 +1,12 @@
 // An action's dialog, opened with props { role: "dialog", action, ctx }: names
 // to type, options to tick, a mode to pick. Styled like Herdr's prompt and
 // confirm dialogs. Git's error stays in the dialog so the person can fix it.
-import { div, svg } from "gpui-kit";
+import { div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, closeOverlay, theme } from "herdr";
 import { dialogFor, initialValues, validate } from "./git.js";
 import { perform } from "./act.js";
-import { icon } from "./menu.js";
+import { button, icon } from "./panel-ui.js";
 
 export class Dialog {
   init(cx) {
@@ -54,10 +54,6 @@ export class Dialog {
   render() {
     const t = theme(), s = this.spec, danger = this.danger();
     const label = (text) => div().pt(14).pb(7).text_size(11.5).text_color(t.dim).child(text);
-    const button = (id, text, primary, action) => h_flex().id(id).h(32).px(14).items_center().rounded(8).border_1()
-      .border_color(primary ? (danger ? t.ansi1 : t.solid) : t.input).bg(primary ? (danger ? t.ansi1 : t.solid) : t.raised)
-      .text_color(primary ? (danger ? t.background : t.solid_foreground) : t.foreground).text_size(12.5).font_medium().cursor_pointer()
-      .hover((st) => st.opacity(0.88)).on_click(action).child(text);
     return v_flex().id("git-graph-dialog").track_focus(this.handle).size_full().min_h(0).p(18).bg(t.popover).text_color(t.foreground).text_size(12.8)
       .on_key_down((e, cx) => {
         if (e.key === "escape") closeOverlay(props().overlay);
@@ -85,13 +81,15 @@ export class Dialog {
         return h_flex().id(`gd-check-${c.id}`).pt(12).gap(9).items_center().cursor_pointer()
           .on_click((_e, cx) => { this.values[c.id] = !on; cx.notify(); })
           .child(div().size(15).flex_none().rounded(4).border_1().border_color(on ? t.accent : t.input).when(on, (e) => e.bg(t.accent)).flex().items_center().justify_center()
-            .when(on, (e) => e.child(svg(icon("check")).size(11).text_color(t.accent_foreground))))
+            .when(on, (e) => e.child(icon("check", 11).text_color(t.accent_foreground))))
           .child(div().text_color(t.foreground).child(c.label));
       }))
       .when(Boolean(this.error), (el) => el.child(div().pt(12).text_size(12).text_color(t.ansi1).child(this.error)))
       .child(div().flex_1())
       .child(h_flex().pt(16).gap(8).justify_end()
-        .child(button("gd-cancel", "Cancel", false, () => closeOverlay(props().overlay)))
-        .child(button("gd-ok", this.busy ? "Working…" : s.confirm, true, (_e, cx) => this.confirm(cx))));
+        .child(button("gd-cancel", "Cancel", () => closeOverlay(props().overlay), { large: true }))
+        // A dangerous confirm keeps its red fill.
+        .child(button("gd-ok", this.busy ? "Working…" : s.confirm, (_e, cx) => this.confirm(cx), { large: true, primary: true })
+          .when(danger, (e) => e.bg(t.ansi1).border_color(t.ansi1).text_color(t.background))));
   }
 }

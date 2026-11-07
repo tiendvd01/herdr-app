@@ -36,6 +36,7 @@ import { ask } from "./ask.js";
 import { palette } from "./palette.js";
 import { activePlace } from "./space-folder.js";
 import { Dialog } from "./dialog.js";
+import { icon, iconButton, chip, button, textButton } from "./panel-ui.js";
 
 // The focused pane's folder (space-folder.js).
 function location() {
@@ -605,13 +606,13 @@ export default class Changes extends View {
       { scope: "branch", label: i.base ? `vs ${i.base}` : "vs base branch", detail: i.merge ? `everything on ${i.branch} since it left ${i.base}` : i.base ? `on ${i.base} itself` : "no main or master branch", ok: Boolean(i.merge) },
     ];
     const box = h_flex().id("scope-box").h(24).px(8).gap(6).items_center().rounded(6).border_1().border_color(this.choosingScope ? t.accent : t.border).bg(t.raised).cursor_pointer().hover((s) => s.bg(t.hover))
-      .tooltip("What is reviewed: the uncommitted changes, the last commit, or the whole branch").child(div().text_size(12).child(this.scopeLabel())).child(svg("mods/reviewer/chevron-down.svg").size(11).text_color(t.dim));
+      .tooltip("What is reviewed: the uncommitted changes, the last commit, or the whole branch").child(div().text_size(12).child(this.scopeLabel())).child(icon("chevron-down", 11).text_color(t.dim));
     return Popover.new("scope").open(this.choosingScope).on_open_change((open, cx) => { this.choosingScope = open; cx.notify(); })
       .trigger(box)
       .content(v_flex().mt(4).min_w(260).max_w(380).p(6).gap(2).rounded(8).border_1().border_color(t.border).bg(t.popover).shadow_md().children(options.map((o) =>
         h_flex().id(`scope-${o.scope}`).px(10).py(7).gap(10).items_center().rounded(6).when(o.ok, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.setScope(o.scope, cx))).when(!o.ok, (e) => e.opacity(0.5))
           .child(v_flex().flex_1().min_w(0).gap(2).child(div().text_size(12).child(o.label)).child(div().text_size(11).text_color(t.dim).truncate().child(o.detail)))
-          .child(o.scope === this.scope ? svg("mods/reviewer/check.svg").size(12).text_color(t.accent) : div().w(12)))));
+          .child(o.scope === this.scope ? icon("check", 12).text_color(t.accent) : div().w(12)))));
   }
 
   // A panel under 600px has no room for a column beside the diff.
@@ -626,8 +627,6 @@ export default class Changes extends View {
     // Every press inside the box stops here: the box floats over the list, and a click that
     // fell through to the row underneath would reopen the box the moment Add closed it.
     const stop = (action) => (e, cx) => { cx.stop_propagation(); action(e, cx); };
-    const button = (id, label, primary, action, tip) => div().id(id).h(26).px(10).flex().items_center().rounded(6).bg(primary ? t.solid : t.raised).text_color(primary ? t.solid_foreground : t.foreground).text_size(11).font_medium().cursor_pointer().hover((s) => s.opacity(0.88)).on_click(stop(action)).tooltip(tip).child(label);
-    const link = (id, label, color, action, tip) => div().id(id).h(26).px(7).flex().items_center().rounded(6).text_size(11).text_color(color).cursor_pointer().hover((s) => s.bg(t.hover)).on_click(stop(action)).tooltip(tip).child(label);
     return v_flex().id("comment-box").flex_none().gap(8).p(10).text_size(12).when(docked, (e) => e.bg(t.surface))
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation()).on_mouse_up("left", (_e, cx) => cx.stop_propagation()).on_click((_e, cx) => cx.stop_propagation())
       .when(!docked, (e) => e.absolute().top(12).right(14).w(300).rounded(10).border_1().border_color(t.border).bg(t.surface + "eb").shadow_lg())
@@ -638,14 +637,14 @@ export default class Changes extends View {
         .child(div().id("comment-help").size(16).flex().items_center().justify_center().rounded(8).border_1().border_color(this.help ? t.accent : t.border).text_size(10).text_color(this.help ? t.accent : t.dim).cursor_pointer().hover((s) => s.text_color(t.foreground).border_color(t.foreground)).tooltip(hint)
           .on_click(stop((_e, cx) => { this.help = !this.help; cx.notify(); })).child("?"))
         .child(div().flex_1())
-        .child(div().id("comment-close").size(20).flex().items_center().justify_center().rounded(5).cursor_pointer().text_color(t.muted).hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click(stop((_e, cx) => this.closeComposer(cx))).tooltip("Close (Esc)").child("×")))
+        .child(iconButton("comment-close", "close", "Close (Esc)", stop((_e, cx) => this.closeComposer(cx)))))
       .child(div().text_size(11).text_color(t.dim).whitespace_normal().child(`${c.path.split("/").pop()} · ${where}`))
       .when(Boolean(this.help), (e) => e.child(v_flex().gap(2).px(8).py(6).rounded(6).bg(t.raised).text_size(10.5).text_color(t.dim).children(hint.split("\n").map((l) => div().whitespace_normal().child(l)))))
       .child(div().w_full().child(Textarea.new(this.note).w_full().px(8).py(6).rounded(8).border_1().border_color(t.input).bg(t.background).text_size(12).text_color(t.foreground)))
       .child(h_flex().items_center().gap(6).flex_wrap()
-        .child(button("comment-add", editing ? "Save" : "Add comment", true, (_e, cx) => this.addComment(cx), "Enter"))
-        .child(link("comment-cancel", "Cancel", t.dim, (_e, cx) => this.closeComposer(cx), "Esc"))
-        .when(editing, (e) => e.child(div().flex_1()).child(link("comment-delete", "Delete", t.ansi1, (_e, cx) => this.deleteComment(cx), "Remove this comment from the review"))));
+        .child(button("comment-add", editing ? "Save" : "Add comment", stop((_e, cx) => this.addComment(cx)), { primary: true, tip: "Enter" }))
+        .child(textButton("comment-cancel", "Cancel", stop((_e, cx) => this.closeComposer(cx)), { tip: "Esc" }))
+        .when(editing, (e) => e.child(div().flex_1()).child(textButton("comment-delete", "Delete", stop((_e, cx) => this.deleteComment(cx)), { color: t.ansi1, tip: "Remove this comment from the review" }))));
   }
 
   item(it, t, colors, target, commented) {
@@ -720,10 +719,6 @@ export default class Changes extends View {
     for (const it of this.items) if (it.kind === "comment") for (let j = it.from; j <= it.to; j++) commented.add(j);
     const perFile = {};
     for (const c of this.comments) perFile[c.path] = (perFile[c.path] ?? 0) + 1;
-    const button = (id, label, primary, action) => div().id(id).h(24).px(10).flex().items_center().rounded(6).bg(primary ? t.solid : t.raised).text_color(primary ? t.solid_foreground : t.foreground).text_size(12).font_medium().cursor_pointer().hover((s) => s.opacity(0.88)).on_click(action).child(label);
-    const toggle = (id, label, on, tip, action) => div().id(id).h(20).px(8).flex().items_center().rounded(5).cursor_pointer().tooltip(tip)
-      .when(on, (e) => e.bg(t.selected).text_color(t.foreground)).when(!on, (e) => e.text_color(t.dim).hover((s) => s.bg(t.hover).text_color(t.foreground))).on_click(action).child(label);
-    const link = (id, label, action) => div().id(id).h(24).px(8).flex().items_center().rounded(6).text_size(12).text_color(t.dim).cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground)).on_click(action).child(label);
     return v_flex().id("changes").size_full().min_h(0).relative().rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13).track_focus(this.handle)
       .on_size_change((size, cx) => { const w = this.size?.width; this.size = size; if (w !== size.width) { this.rebuild(); cx.notify(); } })
       .on_key_down((e, cx) => {
@@ -736,8 +731,8 @@ export default class Changes extends View {
         .child(div().h(24).px(8).flex().items_center().rounded(6).border_1().border_color(t.border).text_size(12).text_color(t.muted).child(`${this.files.length} files`))
         .when(Boolean(this.root) && this.hasHead, (e) => e.child(this.scopePicker(t)))
         .child(div().flex_1()).child(div().text_size(11).text_color(t.ansi2).child(`+${add}`)).child(div().text_size(11).text_color(t.ansi1).child(`−${del}`))
-        .when(n > 0, (e) => e.child(link("review-discard", "Discard", (_e, cx) => this.setComments([], cx))).child(button("review-submit", `Submit review · ${n}`, true, (_e, cx) => this.submit(cx))))
-        .when(n === 0 && canAsk, (e) => e.child(button("ask", "Ask about diff", false, (_e, cx) => this.askAbout(null, cx)))))
+        .when(n > 0, (e) => e.child(textButton("review-discard", "Discard", (_e, cx) => this.setComments([], cx))).child(button("review-submit", `Submit review · ${n}`, (_e, cx) => this.submit(cx), { primary: true })))
+        .when(n === 0 && canAsk, (e) => e.child(button("ask", "Ask about diff", (_e, cx) => this.askAbout(null, cx)))))
       .child(v_flex().id("changes-list").flex_none().h(Math.min(200, Math.max(44, this.files.length * 28 + 12))).overflow_y_scrollbar().p(6).border_b(1).border_color(t.border).children(this.files.map((f) => {
         const parts = f.path.split("/"), name = parts.pop(), k = perFile[f.path];
         return h_flex().id(`change-${f.path}`).h(28).flex_none().px(8).gap(8).items_center().rounded(7).cursor_pointer().when(this.open === f.path, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.pick(f.path, cx))
@@ -752,17 +747,14 @@ export default class Changes extends View {
             .on_click((_e, cx) => { cx.stop_propagation(); this.commentFile(f.path, cx); })
             .when(Boolean(k), (e) => e.child(String(k))).child(svg("mods/reviewer/comment.svg").size(k ? 10 : 12)))
           // Opens the file in Neovim in its own tab (or goes to the tab already editing it).
-          .when(f.status !== "D", (e) => e.child(h_flex().id(`nvim-${f.path}`).size(18).flex_none().items_center().justify_center().rounded(4).cursor_pointer().text_color(t.muted)
-            .hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Open in Neovim (new tab)")
-            .on_click((_e, cx) => { cx.stop_propagation(); this.openNvim(f.path); })
-            .child(svg("mods/reviewer/edit.svg").size(12))))
+          .when(f.status !== "D", (e) => e.child(iconButton(`nvim-${f.path}`, "edit", "Edit in Neovim (new tab)", (_e, cx) => { cx.stop_propagation(); this.openNvim(f.path); }, { small: true })))
           .when(f.add > 0, (e) => e.child(div().text_size(11).text_color(t.ansi2).child(`+${f.add}`))).when(f.del > 0, (e) => e.child(div().text_size(11).text_color(t.ansi1).child(`−${f.del}`)));
       })).when(!this.files.length, (e) => e.child(div().p(8).text_color(t.dim).child(this.error || (this.loading ? "Loading changes…" : this.root ? "No uncommitted changes" : "No folder")))))
       .when(this.limited, el => el.child(div().px(12).py(4).text_size(11).text_color(t.dim).child("Showing the first 1,000 changed files")))
       .when(Boolean(this.open), (e) => e.child(h_flex().h(28).flex_none().px(12).gap(4).items_center().border_b(1).border_color(t.border).text_size(11)
         .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(this.open ?? ""))
-        .child(toggle("view-wrap", "Wrap", this.wrap, "Wrap long lines", (_e, cx) => this.setView({ wrap: !this.wrap }, cx)))
-        .child(toggle("view-split", "Split", this.split, this.areaW && this.areaW < SPLIT_MIN ? `Side by side (the panel needs ${SPLIT_MIN}px; it is one column until then)` : "Old and new side by side", (_e, cx) => this.setView({ split: !this.split }, cx)))))
+        .child(chip("view-wrap", "Wrap", this.wrap, (_e, cx) => this.setView({ wrap: !this.wrap }, cx), { tip: "Wrap long lines" }))
+        .child(chip("view-split", "Split", this.split, (_e, cx) => this.setView({ split: !this.split }, cx), { tip: this.areaW && this.areaW < SPLIT_MIN ? `Side by side (the panel needs ${SPLIT_MIN}px; it is one column until then)` : "Old and new side by side" }))))
       .child(h_flex().flex_1().min_h(0).items_stretch()
         .child(div().id("changes-area").flex_1().min_w(0).min_h(0).relative().font_family(codeFont()).text_size(this.fontSize)
         .on_size_change((size, cx) => { if (Math.abs(size.width - this.areaW) >= 1) { this.areaW = size.width; this.measure(); cx.notify(); } })
@@ -782,7 +774,7 @@ export default class Changes extends View {
       .when(Boolean(this.note_), (e) => e.child(div().px(10).pb(8).text_size(11).text_color(t.ansi1).child(this.note_)))
       .child(h_flex().flex_none().p(10).gap(8).border_t(1).border_color(t.border)
         .child(div().id("commit-message").flex_1().min_w(0).h(32).px(10).flex().items_center().rounded(8).border_1().border_color(this.typing ? t.accent : t.border).cursor_text().on_mouse_down("left", (_e, cx) => cx.stop_propagation()).child(Input.new(this.input).h_full().text_size(12).text_color(t.foreground)))
-        .child(div().id("commit").h(32).px(14).flex().items_center().rounded(8).bg(enabled ? t.solid : t.raised).text_color(enabled ? t.solid_foreground : t.dim).text_size(12).when(enabled, (e) => e.cursor_pointer()).on_click((_e, cx) => this.commit(cx)).child(this.busy ? "Committing…" : "Commit")));
+        .child(button("commit", this.busy ? "Committing…" : "Commit", (_e, cx) => this.commit(cx), { primary: enabled, large: true, disabled: !enabled })));
   }
 
   // A tab named after the file that still runs nvim is reused; otherwise a new tab starts

@@ -29,3 +29,5 @@ sync lib/gh-account.js mods/pr-flow/gh-account.js mods/better-sidebar/git/gh-acc
 # PR reading (gh calls, status facts): pr-flow's, also used by inbox.
 sync lib/pr-gh.js mods/pr-flow/gh.js mods/inbox/gh.js
 sync lib/pr-status.js mods/pr-flow/status.js mods/inbox/status.js
+# Panel buttons (Files, Changes, Issues, Git, Pull requests): one look for the five. Icons: lib/icons/.
+sync lib/panel-ui.js mods/my-files/panel-ui.js mods/reviewer/panel-ui.js mods/issues/panel-ui.js mods/git-graph/panel-ui.js mods/pr-flow/panel-ui.js

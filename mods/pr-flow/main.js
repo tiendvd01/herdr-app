@@ -11,6 +11,7 @@ import { translator, relative, effectiveLang } from "./i18n.js";
 import { facts, steps, openThreads, logTail, flowLine, flowRows, jobSteps, issueState, issueLabel } from "./present.js";
 import { parseDiff, commentTarget, withComments } from "./diff.js";
 import { parseDuration, sanitize } from "./text.js";
+import { iconButton, backButton, chip, button, textButton, icon as uiIcon } from "./panel-ui.js";
 
 const MOD = "pr-flow";
 const VIEW_KEY = "pr-flow.view";
@@ -400,7 +401,7 @@ export default class PrFlow extends View {
         .bg(armed ? t.ansi2 : t.raised).text_color(armed ? t.background : t.foreground)
         .when(!busy, (e) => e.cursor_pointer().hover((s) => s.opacity(0.88)))
         .on_click((_e, cx) => { this.pressMerge(card, cx); cx.notify(); })
-        .child(busy ? icon("spinner", 12, t.working).spin(900) : icon("merge", 13, armed ? t.background : t.ansi2))
+        .child(busy ? uiIcon("spinner", 12).flex_none().text_color(t.working).spin(900) : uiIcon("merge", 13).flex_none().text_color(armed ? t.background : t.ansi2))
         .child(div().text_size(12.5).font_medium().child(label)))
       .when(this.mergeError?.url === card.url, (e) => e.child(div().text_size(11.5).text_color(t.ansi1).child(this.mergeError.message)));
   }
@@ -479,11 +480,15 @@ export default class PrFlow extends View {
   viewBar(t) {
     const cards = this.repoCards(), n = (state) => cards.filter((c) => c.pr?.state === state && (this.view.scope === "all" || c.mine !== false)).length, tr = this.t;
     return h_flex().id("view").h(36).flex_none().px(10).gap(4).items_center().border_b(1).border_color(t.border)
-      .child(this.chip("v-open", tr("f_open"), n("OPEN"), this.view.state === "open", () => this.setView({ state: "open" }), t))
-      .child(this.chip("v-merged", tr("f_merged"), n("MERGED"), this.view.state === "merged", () => this.setView({ state: "merged" }), t))
+      .child(chip("v-open", tr("f_open"), this.view.state === "open", this.pick({ state: "open" }), { count: n("OPEN") }))
+      .child(chip("v-merged", tr("f_merged"), this.view.state === "merged", this.pick({ state: "merged" }), { count: n("MERGED") }))
       .child(div().flex_1())
-      .child(this.chip("v-mine", tr("f_mine"), "", this.view.scope === "mine", () => this.setView({ scope: "mine" }), t))
-      .child(this.chip("v-all", tr("f_all"), "", this.view.scope === "all", () => this.setView({ scope: "all" }), t));
+      .child(chip("v-mine", tr("f_mine"), this.view.scope === "mine", this.pick({ scope: "mine" })))
+      .child(chip("v-all", tr("f_all"), this.view.scope === "all", this.pick({ scope: "all" })));
+  }
+
+  pick(patch) {
+    return (_e, cx) => { this.setView(patch); cx.notify(); };
   }
 
   // Cards still fetching (no data, no error) are not drawn as rows: the list shows one loading
@@ -496,26 +501,16 @@ export default class PrFlow extends View {
     return !card.pr && !card.error;
   }
 
-  chip(id, label, count, active, onPick, t) {
-    return h_flex().id(id).h(22).flex_none().px(8).gap(5).items_center().rounded(6).cursor_pointer()
-      .bg(active ? t.selected : t.raised).text_color(active ? t.foreground : t.muted).hover((s) => s.bg(t.hover))
-      .on_click((_e, cx) => { onPick(); cx.notify(); })
-      .child(div().text_size(11.5).max_w(140).truncate().child(label))
-      .when(count !== "", (e) => e.child(div().text_size(11).text_color(t.dim).child(String(count))));
-  }
-
   header(count, t) {
     const tr = this.t;
     return h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
       .child(div().font_semibold().child(tr("title")))
       .when(count > 0, (e) => e.child(div().px(6).rounded(5).bg(t.raised).text_size(11).text_color(t.muted).child(String(count))))
       .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim).child((() => { const r = this.spaceRepo(); return r && r !== "pending" ? r : ""; })()))
-      .child(h_flex().id("settings").size(26).items_center().justify_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover))
-        .on_click((_e, cx) => { this.settingsOpen = true; cx.notify(); })
-        .child(icon("settings", 14, t.muted)))
-      .child(h_flex().id("refresh").size(26).items_center().justify_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover))
-        .on_click((_e, cx) => this.refreshNow(cx))
-        .child(this.refreshing || this.filtered().some((c) => this.pending(c)) ? icon("spinner", 13, t.muted).spin(900) : icon("refresh", 14, t.muted)));
+      .child(iconButton("settings", "settings", tr("settings"), (_e, cx) => { this.settingsOpen = true; cx.notify(); }))
+      .child(this.refreshing || this.filtered().some((c) => this.pending(c))
+        ? iconButton("refresh", "spinner", "Refreshing…", (_e, cx) => this.refreshNow(cx))
+        : iconButton("refresh", "refresh", "Refresh", (_e, cx) => this.refreshNow(cx)));
   }
 
   row(card, index, t) {
@@ -580,9 +575,7 @@ export default class PrFlow extends View {
     const options = [["auto", tr("lang_auto")], ["en", "English"]];
     return v_flex().size_full()
       .child(h_flex().h(42).flex_none().px(8).gap(4).items_center().border_b(1).border_color(t.border)
-        .child(h_flex().id("settings-back").px(6).h(26).gap(2).items_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover))
-          .on_click((_e, cx) => { this.settingsOpen = false; cx.notify(); })
-          .child(icon("back", 14, t.muted)).child(div().text_color(t.muted).child(tr("back"))))
+        .child(backButton("settings-back", tr("back"), (_e, cx) => { this.settingsOpen = false; cx.notify(); }))
         .child(div().flex_1())
         .child(div().pr(6).font_semibold().child(tr("settings"))))
       .child(this.section(tr("language"), t))
@@ -590,7 +583,7 @@ export default class PrFlow extends View {
         h_flex().id(`lang-${value}`).w_full().h(32).flex_none().px(6).gap(8).items_center().rounded(6).cursor_pointer().when(choice === value, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover))
           .on_click(() => setShared(LANG_KEY, value))
           .child(div().flex_1().child(label))
-          .when(choice === value, (e) => e.child(icon("check", 13, t.ansi2))))));
+          .when(choice === value, (e) => e.child(uiIcon("check", 13).flex_none().text_color(t.ansi2))))));
   }
 
   section(title, t) {
@@ -613,11 +606,9 @@ export default class PrFlow extends View {
   detail(card, t) {
     const tr = this.t, now = Date.now();
     const top = h_flex().h(42).flex_none().px(8).gap(4).items_center().border_b(1).border_color(t.border)
-      .child(h_flex().id("back").px(6).h(26).gap(2).items_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.back(cx))
-        .child(icon("back", 14, t.muted)).child(div().text_color(t.muted).child(tr("back"))))
+      .child(backButton("back", tr("back"), (_e, cx) => this.back(cx)))
       .child(div().flex_1())
-      .child(h_flex().id("gh").px(8).h(26).gap(5).items_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover)).on_click(() => openExternal(card.url))
-        .child(div().text_size(12).text_color(t.muted).child("GitHub")).child(icon("external", 12, t.muted)));
+      .child(iconButton("gh", "external", tr("open_github"), () => openExternal(card.url)));
     if (!card.pr) {
       return v_flex().size_full().child(top).child(div().p(14).text_color(card.error ? t.ansi1 : t.dim).child(card.error ? sanitize(card.error) : tr("loading")));
     }
@@ -638,7 +629,7 @@ export default class PrFlow extends View {
             .child(v_flex().flex_1().min_w(0)
               .child(div().truncate().text_size(12.5).child(agent.name))
               .child(div().truncate().text_size(11).text_color(t.dim).child(`${agent.app} · ${tr(`a_${agent.status}`)}`)))
-            .child(div().flex_none().text_size(11.5).text_color(t.muted).child(tr("agent_go"))).child(icon("arrow", 12, t.muted)))))
+            .child(div().flex_none().text_size(11.5).text_color(t.muted).child(tr("agent_go"))).child(uiIcon("chevron-right", 12).flex_none().text_color(t.muted)))))
         .child(this.section(tr("progress"), t))
         .child(v_flex().px(14).children(all.map((row, i) => this.timelineRow(card, row, i === all.length - 1, t))))
         .when(Boolean(log), (e) => e.child(this.section(tr("failed_log", logName), t)).child(log))
@@ -657,7 +648,7 @@ export default class PrFlow extends View {
             .child(div().text_size(12.5).child(sanitize(x.body).slice(0, 400)))))))
         .child(h_flex().id("files-head").px(14).pt(16).pb(8).gap(6).items_center().text_size(11.5).font_medium().text_color(t.dim).cursor_pointer()
           .on_click((_e, cx) => { this.filesFold.set(card.url, !filesOpen); cx.notify(); })
-          .child(div().child(tr("files", pr.changedFiles ?? files.length))).child(icon(filesOpen ? "down" : "arrow", 11, t.dim)).child(div().flex_1())
+          .child(div().child(tr("files", pr.changedFiles ?? files.length))).child(uiIcon(filesOpen ? "chevron-down" : "chevron-right", 11).flex_none().text_color(t.dim)).child(div().flex_1())
           .child(div().text_color(t.ansi2).child(`+${pr.additions ?? 0}`)).child(div().text_color(t.ansi1).child(`−${pr.deletions ?? 0}`)))
         .when(filesOpen, (e) => e.child(v_flex().px(8).children(files.map((f, i) => {
           const { dir, name } = fileLine(f.path);
@@ -708,22 +699,20 @@ export default class PrFlow extends View {
       .child(v_flex().flex_1().min_w(0).pb(last ? 0 : 12).gap(1)
         .child(h_flex().id(`row-${row.run ? row.id : row.label}`).w_full().gap(4).items_center().when(openable, (e) => e.cursor_pointer().on_click(toggle))
           .child(div().min_w(0).truncate().pt(1).font_medium().text_color(row.tone === "todo" ? t.dim : t.foreground).child(sanitize(row.label)))
-          .when(openable, (e) => e.child(icon(this.opened.has(key) ? "down" : "arrow", 11, t.dim))))
+          .when(openable, (e) => e.child(uiIcon(this.opened.has(key) ? "chevron-down" : "chevron-right", 11).flex_none().text_color(t.dim))))
         .when(Boolean(row.note), (e) => e.child(div().w_full().truncate().text_size(11.5).text_color(t.dim).child(sanitize(row.note))))
         .when(row.run, (e) => e.child(h_flex().pt(2).gap(10)
           .when(row.failed, (x) => x.child(link(`log-${row.id}`, tr("run_log"), () => this.openViewer({ kind: "log", repo: card.repo, runId: String(row.id), name: row.label, url: row.url, title: card.pr.title, number: card.number }))))
-          .child(link(`web-${row.id}`, "GitHub", () => openExternal(row.url)))))
+          .child(iconButton(`web-${row.id}`, "external", tr("open_github"), () => openExternal(row.url), { small: true }))))
         .when(Boolean(sub), (e) => e.child(sub)));
   }
 
   issueScreen(url, t) {
     const tr = this.t, card = this.current(), issue = this.issueData.get(url);
     const top = h_flex().h(42).flex_none().px(8).gap(4).items_center().border_b(1).border_color(t.border)
-      .child(h_flex().id("issue-back").px(6).h(26).gap(2).items_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover)).on_click((_e, cx) => { this.issueUrl = null; cx.notify(); })
-        .child(icon("back", 14, t.muted)).child(div().text_color(t.muted).child(`PR #${card?.number ?? ""}`)))
+      .child(backButton("issue-back", `PR #${card?.number ?? ""}`, (_e, cx) => { this.issueUrl = null; cx.notify(); }))
       .child(div().flex_1())
-      .child(h_flex().id("issue-gh").px(8).h(26).gap(5).items_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover)).on_click(() => openExternal(url))
-        .child(div().text_size(12).text_color(t.muted).child("GitHub")).child(icon("external", 12, t.muted)));
+      .child(iconButton("issue-gh", "external", tr("open_github"), () => openExternal(url)));
     if (!issue || issue.failed) return v_flex().size_full().child(top).child(div().p(14).text_color(issue ? t.ansi1 : t.dim).child(issue ? tr("issue_failed") : tr("loading")));
     const state = issueState(issue, tr), comments = issue.comments ?? [], now = Date.now();
     return v_flex().size_full().child(top)
@@ -814,8 +803,6 @@ export default class PrFlow extends View {
 
   composer(t) {
     const tr = this.t, at = this.composing;
-    const button = (id, label, primary, action) => h_flex().id(id).h(28).px(12).flex_none().items_center().rounded(6).text_size(12).cursor_pointer()
-      .bg(primary ? t.solid : t.raised).text_color(primary ? t.solid_foreground : t.foreground).hover((s) => s.opacity(0.88)).on_click(action).child(label);
     return v_flex().id("composer").w_full().flex_none().p(10).gap(8).border_t(1).border_color(t.border).text_size(12.5)
       .on_key_down((e, cx) => {
         if (e.key === "escape") { this.cancelComment(); cx.notify(); cx.stop_propagation(); }
@@ -825,8 +812,8 @@ export default class PrFlow extends View {
       .child(Textarea.new(this.commentInput).w_full().px(8).py(6).rounded(6).border_1().border_color(t.accent).bg(t.raised).text_color(t.foreground))
       .when(Boolean(this.commentError), (e) => e.child(div().text_size(11.5).text_color(t.ansi1).child(this.commentError)))
       .child(h_flex().w_full().gap(6).items_center().child(div().flex_1().text_size(11).text_color(t.dim).child("⌘↵"))
-        .child(button("comment-cancel", tr("comment_cancel"), false, (_e, cx) => { this.cancelComment(); cx.notify(); }))
-        .child(button("comment-send", tr(this.sending ? "comment_sending" : "comment_send"), true, (_e, cx) => this.sendComment(cx))));
+        .child(textButton("comment-cancel", tr("comment_cancel"), (_e, cx) => { this.cancelComment(); cx.notify(); }))
+        .child(button("comment-send", tr(this.sending ? "comment_sending" : "comment_send"), (_e, cx) => this.sendComment(cx), { primary: true })));
   }
 
   closeViewer() {
@@ -855,7 +842,7 @@ export default class PrFlow extends View {
     if (this.viewError) {
       return v_flex().flex_1().items_center().justify_center().gap(10).px(24)
         .child(div().text_center().text_color(t.muted).child(tr(target.kind === "log" ? "log_failed" : "diff_failed")))
-        .child(div().id("gh").px(10).py(5).rounded(6).bg(t.raised).cursor_pointer().hover((s) => s.bg(t.hover)).on_click(() => openExternal(target.url)).child(tr("open_github")));
+        .child(button("gh", tr("open_github"), () => openExternal(target.url)));
     }
     if (target.kind === "log") {
       if (!this.lines) return div().p(14).text_color(t.dim).child(tr("loading"));
@@ -895,7 +882,7 @@ export default class PrFlow extends View {
           .child(div().min_w(0).truncate().text_color(t.muted).child(target.kind === "log" ? `${target.name} · ${target.title}` : target.title)))
         .child(div().flex_1())
         .when(target?.kind === "diff", (e) => e.child(div().flex_none().text_size(11).text_color(t.ansi2).child(`+${target.additions ?? 0}`)).child(div().flex_none().text_size(11).text_color(t.ansi1).child(`−${target.deletions ?? 0}`)))
-        .child(h_flex().id("close").size(26).flex_none().items_center().justify_center().rounded(6).cursor_pointer().hover((s) => s.bg(t.hover)).on_click(() => this.closeViewer()).child(icon("cross", 13, t.muted))))
+        .child(iconButton("close", "close", tr("close"), () => this.closeViewer())))
       .when(Boolean(target), (e) => e.child(this.viewerBody(t)));
   }
 
