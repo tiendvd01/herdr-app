@@ -1,3 +1,4 @@
+// GENERATED from lib/pr-gh.js by scripts/sync-github-lib.sh. Do not edit here.
 // Every call here only reads, with two exceptions you start yourself: `comment`, when you send a
 // comment on a diff line, and `merge`, when the `merge` prop is set and you press the button twice.
 // `exec` is the app's: (command, args, options) => Promise<{code, stdout, stderr}>.

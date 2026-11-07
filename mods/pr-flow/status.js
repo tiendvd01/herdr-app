@@ -1,3 +1,4 @@
+// GENERATED from lib/pr-status.js by scripts/sync-github-lib.sh. Do not edit here.
 // Turns a pull request into plain facts about where it is. Nothing here judges what the
 // reader should do, and a check that does not exist is reported as missing, never as passed.
 

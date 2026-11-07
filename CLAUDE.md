@@ -24,14 +24,14 @@ After each edit, check the matching `<name>.error` file (`layout.error`, `keys.e
 
 The window is `layouts/tiendvd-layout.json`, a tree of `row`/`column`/`stack`/`block` nodes. Each block names a mod. The pieces wired together:
 
-- Left sidebar: `my-chrome` (brand and footer), shipped `spaces`, `my-agents`.
+- Left sidebar: `my-chrome` (brand and footer), `better-sidebar`, `my-agents`, `inbox`.
 - Work column: `my-tabs` (tab bar), then `content` (tab panes, with `project-settings` as the other stack child), then a right `panel-body` stack of `files` / `reviewer` (the Changes panel) / `issues`, then `status-usage` as the status bar.
 - Keys live in `keys.json` (macOS `cmd-*` bindings; `tmux-prefix` mod adds a prefix mode).
 
 ## Mods: what is yours and what isn't
 
 - **Shipped mods are Herdr's and are overwritten on update** (`spaces`, `files`, `tabs`, `menu`, `pane`, `picker`, `worktree`, ...). Never edit them in place: `herdr-app do mod.clone '{"name":"x","as":"my-x"}'`, edit the clone, and point the layout's `content.mod` at it.
-- **Personal mods**: `my-tabs`, `my-agents`, `my-chrome`, `my-new-menu`, `my-worktree` (clones of shipped ones), plus `issues`, `reviewer`, `processes`, `project-scripts`, `project-settings`, `status-usage`, `branch-switch` (popup đổi branch, mở từ status bar), `tmux-prefix`, `open-vscode`.
+- **Personal mods**: `my-tabs`, `my-agents`, `my-chrome`, `my-new-menu`, `my-worktree` (clones of shipped ones), plus `issues`, `reviewer`, `processes`, `project-scripts`, `project-settings`, `status-usage`, `branch-switch` (popup đổi branch, mở từ status bar), `tmux-prefix`, `open-vscode`, `inbox` (hòm thư: agent cần bạn / chạy xong, review và CI trên PR của bạn; bấm để nhảy tới agent hoặc PR trong `pr-flow`).
 - Layouts `main`, `terminals` and `win98` are shipped; `tiendvd-layout` is the personal one.
 - Each mod folder has its own copy of `gpui-kit.d.ts` and a generated `jsconfig.json` (`checkJs`, `strict`). Expect many editor type errors that are not runtime bugs: `herdr.d.ts` types `theme()` as `Record<string,string>` while gpui-kit colors want `` `#${string}` ``, and `layout()` / `shared()` return `unknown`. `herdr-app check` is the real gate.
 
@@ -46,7 +46,7 @@ The window is `layouts/tiendvd-layout.json`, a tree of `row`/`column`/`stack`/`b
 Each space has a fixed folder (`shared("space.folders")`, source `lib/space-folder.js`, copied into mods by `scripts/sync-github-lib.sh`); the panels follow it, not the focused terminal's cwd. See `docs/space-folder.md`. `gh` calls in `pr-flow`, `better-sidebar` and `issues` pick the gh account by repo owner (`lib/gh-account.js`, `docs/gh-account.md`); keep the work account active.
 
 
-Per-mod behaviour notes live in `docs/mods/` (kept outside `mods/` because saving any file under a mod folder hot-reloads it): `processes` (Sessions dialog), `status-usage` (status bar, AI usage limits, post-create runner), `project-settings` (Ports + Worktree script), `issues`, `reviewer` (Changes). Update the matching file when changing a mod's behaviour.
+Per-mod behaviour notes live in `docs/mods/` (kept outside `mods/` because saving any file under a mod folder hot-reloads it): `processes` (Sessions dialog), `status-usage` (status bar, AI usage limits, post-create runner), `project-settings` (Ports + Worktree script), `issues`, `reviewer` (Changes), `inbox`. Update the matching file when changing a mod's behaviour.
 
 ## Git
 

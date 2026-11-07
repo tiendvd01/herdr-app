@@ -319,6 +319,20 @@ export default class PrFlow extends View {
     return this.url ? this.tracker.cards().find((c) => c.url === this.url) ?? null : null;
   }
 
+  // Another mod (inbox) asks for one PR: shared("pr-flow.goto") = { url, at }. Called from render,
+  // after syncSpace, so it wins over the space's saved state; never notifies (the fetch is spawned).
+  takeGoto(cx) {
+    const g = shared("pr-flow.goto");
+    if (!g?.url || g.at <= (this.gotoAt ?? 0) || Date.now() - g.at > 30_000) return;
+    this.gotoAt = g.at;
+    const entry = this.tracker.track(g.url);
+    if (!entry) return;
+    this.url = entry.url;
+    this.issueUrl = null;
+    this.save();
+    cx.spawn(async (cx) => { await this.tracker.refresh(entry.url); this.syncLog(cx); cx.notify(); });
+  }
+
   openPr(url, cx) {
     this.url = url;
     this.save();
@@ -892,6 +906,7 @@ export default class PrFlow extends View {
     // A pane already has Herdr's own frame around it.
     if (this.viewer) return v_flex().size_full().min_h(0).overflow_hidden().bg(t.background).text_color(t.foreground).text_size(13).child(this.renderViewer(t, cx));
     this.syncSpace(cx);
+    this.takeGoto(cx);
     const card = this.url ? this.current() : null;
     if (this.url && !card && this.tracker.cards().length) this.url = null; // it closed while open
     return shell.id("pr-flow").track_focus(this.handle).on_key_down((e, cx) => this.onKey(e, cx)).on_mouse_down("left", () => this.handle.focus())
