@@ -13,6 +13,7 @@ const MERGED_KEEP_MS = 30 * 24 * 3_600_000;
 const CONCURRENCY = 4;
 const FLOW_POLL_MS = 15_000;
 const VIEW_MS = 5 * 60_000;
+const PAGE = 20; // PRs asked of GitHub per page; scrolling to the end asks for another
 
 function clean(pr) {
   return { ...pr, title: sanitize(pr.title), body: sanitize(pr.body) };
@@ -30,6 +31,10 @@ export function createTracker({ gh, remoteOf, store, settings, now = Date.now })
   let viewAt = -Infinity;
   let view = { state: 'open', scope: 'mine' };
   let me = null; // your GitHub logins, one per gh account
+  const listed = new Map(); // `${state}:${scope}` -> Set of urls the list call returned for that view
+  const limits = new Map(); // view key -> how many PRs the list call asks for
+  const full = new Map(); // view key -> whether that call came back full (so there may be more)
+  const viewKey = () => `${view.state}:${view.scope}`;
 
   async function repoOf(agent) {
     const key = `${agent.on ?? ''}:${agent.cwd}`;
@@ -72,13 +77,17 @@ export function createTracker({ gh, remoteOf, store, settings, now = Date.now })
     viewAt = now();
     if (!me?.length) me = await gh.me().catch(() => null);
     let urls = [];
+    const key = viewKey(), limit = limits.get(key) ?? PAGE;
     try {
-      if (view.scope === 'mine') urls = await gh.mine(view.state);
+      if (view.scope === 'mine') { urls = await gh.mine(view.state, limit); full.set(key, urls.length >= limit); }
       else {
         const repos = [...new Set(agents.map((a) => a.repo).filter(Boolean))];
-        urls = (await Promise.all(repos.map((r) => gh.listRepo(r, view.state)))).flat();
+        const lists = await Promise.all(repos.map((r) => gh.listRepo(r, view.state, limit)));
+        urls = lists.flat();
+        full.set(key, lists.some((l) => l.length >= limit));
       }
     } catch (error) { lastError = error.message; }
+    listed.set(key, new Set(urls.map((u) => parsePrUrl(u)?.url).filter(Boolean)));
     let added = false;
     for (const url of urls) {
       const parsed = parsePrUrl(url);
@@ -87,9 +96,11 @@ export function createTracker({ gh, remoteOf, store, settings, now = Date.now })
     if (added) store.save(tracked);
   }
 
+  const refreshing = new Set();
   async function refresh(url) {
     const entry = tracked[url];
     if (!entry) return;
+    refreshing.add(url);
     try {
       const [pr, extra] = await Promise.all([gh.fetchPr(url), gh.fetchThreads(url)]);
       if (pr.headRefOid !== entry.headSha) {
@@ -108,6 +119,7 @@ export function createTracker({ gh, remoteOf, store, settings, now = Date.now })
       lastError = error.message;
       live.set(url, { ...live.get(url), error: error.message, fetchedAt: now() });
     }
+    refreshing.delete(url);
     store.save(tracked);
   }
 
@@ -182,7 +194,10 @@ export function createTracker({ gh, remoteOf, store, settings, now = Date.now })
     await inBatches(unique, discover);
     await discoverView();
     const fresh = new Set(finished.flatMap((a) => Object.values(tracked).filter((t) => t.repo === a.repo && t.branch === a.branch).map((t) => t.url)));
+    // Only what the shown view lists (or an agent's branch) is polled; other views fetch when picked.
+    const inView = listed.get(viewKey());
     const due = Object.values(tracked).filter((entry) => {
+      if (!onBranch(entry) && !inView?.has(entry.url)) return false;
       const data = live.get(entry.url);
       if (!data) return true;
       if (['MERGED', 'CLOSED'].includes(data.pr?.state)) return false;
@@ -203,6 +218,8 @@ export function createTracker({ gh, remoteOf, store, settings, now = Date.now })
       const agent = agentFor(entry);
       const base = { key: entry.url, url: entry.url, repo: entry.repo, number: entry.number, agent };
       if (!data?.pr) {
+        // Not fetched because the shown view doesn't list it: hide it instead of a spinner that never ends.
+        if (!data && !onBranch(entry) && !listed.get(viewKey())?.has(entry.url) && !refreshing.has(entry.url)) continue;
         out.push({ ...base, loading: true, error: data?.error });
         continue;
       }
@@ -222,6 +239,9 @@ export function createTracker({ gh, remoteOf, store, settings, now = Date.now })
     refreshAll: () => inBatches(Object.values(tracked), (e) => refresh(e.url)),
     track,
     cards,
+    // Scrolled to the end of the list: ask GitHub for a bigger page of the shown view.
+    hasMore: () => full.get(viewKey()) === true,
+    loadMore() { if (full.get(viewKey()) !== true) return false; limits.set(viewKey(), (limits.get(viewKey()) ?? PAGE) + PAGE); full.set(viewKey(), false); viewAt = -Infinity; return true; },
     setView(next) { view = next; viewAt = -Infinity; },
     lastError: () => lastError,
   };

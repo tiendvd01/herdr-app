@@ -139,6 +139,7 @@ export default class PrFlow extends View {
     this.view = { state: "open", scope: "mine" };
     try { this.states = JSON.parse(localStorage.getItem("spaces") ?? "{}") ?? {}; } catch { this.states = {}; }
     this.cur = undefined; // the space whose state is loaded
+    this.counts = new Map(); // repo|state|scope -> { n, at, busy }, from GitHub's search count
     this.spaceRepos = new Map(); // on:folder -> repo, null (none), or "pending"
     this.tracker.setView(this.view);
     this.logs = new Map(); // run id -> { name, runId, repo, tail, full, failed }
@@ -477,11 +478,29 @@ export default class PrFlow extends View {
     this.save();
   }
 
-  viewBar(t) {
-    const cards = this.repoCards(), n = (state) => cards.filter((c) => c.pr?.state === state && (this.view.scope === "all" || c.mine !== false)).length, tr = this.t;
+  // The chip numbers come from a search count per state, fetched ahead (not from loaded cards), at most
+  // once a minute per repo/state/scope. Called from render: it only spawns, and notifies when done.
+  count(state, cx) {
+    const repo = this.spaceRepo();
+    if (!repo || repo === "pending") return null;
+    const key = `${repo}|${state}|${this.view.scope}`, c = this.counts.get(key);
+    if (!c || (!c.busy && Date.now() - c.at > 60_000)) {
+      const e = { n: c?.n ?? null, at: Date.now(), busy: true };
+      this.counts.set(key, e);
+      cx.spawn(async (cx) => {
+        try { e.n = await this.gh.count(repo, state, this.view.scope); } catch { /* keep the old number */ }
+        e.busy = false; e.at = Date.now();
+        cx.notify();
+      });
+    }
+    return this.counts.get(key).n;
+  }
+
+  viewBar(t, cx) {
+    const n = (state) => this.count(state, cx), tr = this.t;
     return h_flex().id("view").h(36).flex_none().px(10).gap(4).items_center().border_b(1).border_color(t.border)
-      .child(chip("v-open", tr("f_open"), this.view.state === "open", this.pick({ state: "open" }), { count: n("OPEN") }))
-      .child(chip("v-merged", tr("f_merged"), this.view.state === "merged", this.pick({ state: "merged" }), { count: n("MERGED") }))
+      .child(chip("v-open", tr("f_open"), this.view.state === "open", this.pick({ state: "open" }), { count: n("open") }))
+      .child(chip("v-merged", tr("f_merged"), this.view.state === "merged", this.pick({ state: "merged" }), { count: n("merged") }))
       .child(div().flex_1())
       .child(chip("v-mine", tr("f_mine"), this.view.scope === "mine", this.pick({ scope: "mine" })))
       .child(chip("v-all", tr("f_all"), this.view.scope === "all", this.pick({ scope: "all" })));
@@ -513,13 +532,29 @@ export default class PrFlow extends View {
         : iconButton("refresh", "refresh", "Refresh", (_e, cx) => this.refreshNow(cx)));
   }
 
+  // Rows have a fixed height (every line truncates), which the virtual list needs to know where the end is.
+  rowH(card) {
+    if (!card.pr) return 66;
+    return 85 + (flowLine(card, this.t) ? 22 : 0) + (card.agent ? 23 : 0);
+  }
+
+  // Scrolled to the end of the list: ask GitHub for the next page of the shown view.
+  loadMore(cx) {
+    if (this.loadingMore || !this.tracker.loadMore()) return;
+    this.loadingMore = true;
+    cx.notify();
+    cx.spawn(async (cx) => {
+      try { await this.tracker.tick(await agentList()); } finally { this.loadingMore = false; }
+      cx.notify();
+    });
+  }
+
   row(card, index, t) {
     const tr = this.t, now = Date.now();
     const done = card.pr?.state === "MERGED" && !card.flow?.active;
     const selected = index === this.selected;
     const short = card.repo.split("/")[1];
-    const body = v_flex().id(`pr-${index}`).w_full().flex_none().px(10).py(10).gap(5).rounded(8).cursor_pointer().when(selected, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover))
-      .on_click((_e, cx) => { this.selected = index; this.selectedUrl = card.url; this.openPr(card.url, cx); });
+    const body = v_flex().id(`pr-${index}`).w_full().h(this.rowH(card) - 2).flex_none().px(10).py(10).gap(5).rounded(8).overflow_hidden().cursor_pointer().when(selected, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover));
     if (!card.pr) {
       return body
         .child(div().w_full().truncate().text_color(t.muted).child(`${short} #${card.number}`))
@@ -543,10 +578,10 @@ export default class PrFlow extends View {
         .child(div().min_w(0).truncate().text_size(11.5).text_color(t.muted).child(`${card.agent.app} · ${card.agent.name}`))));
   }
 
-  list(t) {
+  list(t, cx) {
     const tr = this.t, all = this.filtered(), cards = this.shown();
     if (!cards.length && all.some((c) => this.pending(c))) {
-      return v_flex().size_full().child(this.header(0, t)).child(this.viewBar(t))
+      return v_flex().size_full().child(this.header(0, t)).child(this.viewBar(t, cx))
         .child(v_flex().flex_1().items_center().justify_center().gap(8)
           .child(icon("spinner", 18, t.dim).spin(900))
           .child(div().text_size(12).text_color(t.dim).child(tr("loading"))));
@@ -554,7 +589,7 @@ export default class PrFlow extends View {
     if (!cards.length) {
       const noGh = !this.ghReady, repo = this.spaceRepo();
       const body = noGh ? tr("gh_body") : repo === "pending" ? "…" : !repo ? "This space's folder is not a GitHub repo." : `${repo} · ${tr("empty_body")}`;
-      return v_flex().size_full().child(this.header(0, t)).child(this.viewBar(t))
+      return v_flex().size_full().child(this.header(0, t)).child(this.viewBar(t, cx))
         .child(v_flex().flex_1().items_center().justify_center().gap(6).px(24)
           .child(icon("merge", 22, t.dim))
           .child(div().pt(4).font_medium().child(tr(noGh ? "gh_title" : "empty_title")))
@@ -565,9 +600,28 @@ export default class PrFlow extends View {
     this.selected = kept >= 0 ? kept : Math.min(this.selected, cards.length - 1);
     this.selectedUrl = cards[this.selected].url;
     const error = this.tracker.lastError();
-    return v_flex().size_full().child(this.header(cards.length, t)).child(this.viewBar(t))
-      .child(v_flex().id("pr-list").flex_1().min_h(0).overflow_y_scrollbar().p(6).gap(2).children(cards.map((c, i) => this.row(c, i, t))))
+    return v_flex().size_full().child(this.header(cards.length, t)).child(this.viewBar(t, cx))
+      .child(this.prList(cards, t))
       .when(Boolean(error), (e) => e.child(div().flex_none().px(14).py(6).border_t(1).border_color(t.border).truncate().text_size(11).text_color(t.ansi1).child(sanitize(error))));
+  }
+
+  prList(cards, t) {
+    const more = this.tracker.hasMore() || this.loadingMore, count = cards.length + (more ? 1 : 0);
+    return div().flex_1().min_h(0).relative().p(6)
+      .child(v_virtual_list("pr-list", count, cards.map((c) => this.rowH(c)).concat(more ? [44] : []), (i) => cards[i]?.url ?? "more",
+        (range, cx) => {
+          // The end row on screen: load the next page.
+          if (range.end > cards.length && more && !this.loadingMore) cx.spawn(async (cx) => this.loadMore(cx));
+          return Array.from({ length: range.end - range.start }, (_x, k) => range.start + k)
+            .map((i) => cards[i] ? div().w_full().h(this.rowH(cards[i])).pb(2).child(this.row(cards[i], i, t))
+              : div().id("pr-more").h(44).px(10).flex().items_center().gap(6).text_size(11.5).text_color(t.dim).child(icon("spinner", 12, t.dim).spin(900)).child("Loading more…"));
+        })
+        .on_item_click((key, cx) => {
+          const i = cards.findIndex((c) => c.url === key);
+          if (i >= 0) { this.selected = i; this.selectedUrl = key; this.openPr(key, cx); }
+        })
+        .size_full())
+      .child(Scrollbar.vertical("pr-list").viewport_from_layout().absolute().inset_0());
   }
 
   settingsScreen(t) {
@@ -897,6 +951,6 @@ export default class PrFlow extends View {
     const card = this.url ? this.current() : null;
     if (this.url && !card && this.tracker.cards().length) this.url = null; // it closed while open
     return shell.id("pr-flow").track_focus(this.handle).on_key_down((e, cx) => this.onKey(e, cx)).on_mouse_down("left", () => this.handle.focus())
-      .child(this.settingsOpen ? this.settingsScreen(t) : card && this.issueUrl ? this.issueScreen(this.issueUrl, t) : card ? this.detail(card, t) : this.list(t));
+      .child(this.settingsOpen ? this.settingsScreen(t) : card && this.issueUrl ? this.issueScreen(this.issueUrl, t) : card ? this.detail(card, t) : this.list(t, cx));
   }
 }

@@ -8,7 +8,7 @@
 // render() never calls cx.notify(): work it needs (detect the repo, load
 // the list, swap the space) is spawned and notifies when it finishes.
 import { View, div, image } from "gpui-kit";
-import { v_flex, h_flex, InputState, Input, TextView } from "gpui-base";
+import { v_flex, h_flex, InputState, Input, TextView, Scrollbar, v_virtual_list } from "gpui-base";
 import { exec, theme, focused, spaces, appHome, home, notify, settings, props, openOverlay, readTextFile, writeTextFile } from "herdr";
 import { Viewer } from "./viewer.js";
 import { icon, iconButton, backButton, chip, button, textButton } from "./panel-ui.js";
@@ -36,6 +36,8 @@ const keyOf = (repo, n) => `${repo}#${n}`;
 const MERMAID = /```mermaid[^\n]*\n([\s\S]*?)```/g;
 const hash = (str) => { let h = 5381; for (let i = 0; i < str.length; i++) h = ((h * 33) ^ str.charCodeAt(i)) >>> 0; return h.toString(36); };
 // Cache: a list or an issue fetched less than FRESH ago is not fetched again.
+// The list loads a page at a time: scrolling to the end asks gh for PAGE more (gh has no cursor, so --limit grows).
+const PAGE = 30, ROW_H = 58;
 const FRESH = 60_000, MAX_LISTS = 60, MAX_ISSUES = 300;
 // AI summaries live outside the project, in the user's home (not in git, not in the app home):
 // summaries.json maps "owner/repo#n" -> { text, version, model, at }; jobs/ holds a running claude's files.
@@ -77,6 +79,7 @@ export default class Issues extends View {
     this.sums = {}; // "owner/repo#n" -> saved summary
     this.sumRun = {}; // key -> { error } while a summary runs (or failed)
     this.width = 360;
+    this.limits = new Map(); // list key -> how many issues were asked for
     this.cache = { lists: {}, issues: {} }; this.tried = {}; this.inflight = new Set(); this.dirty = false;
     cx.spawn(async (cx) => {
       await this.loadCache();
@@ -183,7 +186,7 @@ export default class Issues extends View {
     if (this.inflight.has(`lists:${key}`) || (!force && this.isFresh("lists", key))) return;
     this.inflight.add(`lists:${key}`); this.tried[`lists:${key}`] = Date.now(); s.loading = true;
     cx.spawn(async (cx) => {
-      const args = ["issue", "list", "-R", repo, "--state", s.state, "--limit", "100",
+      const args = ["issue", "list", "-R", repo, "--state", s.state, "--limit", String(this.limits.get(key) ?? PAGE),
         "--json", "number,title,state,labels,assignees,updatedAt,author"];
       if (s.mine) args.push("--assignee", "@me");
       if (s.query) args.push("--search", s.query);
@@ -197,6 +200,13 @@ export default class Issues extends View {
       }
       cx.notify();
     });
+  }
+  // More of the same list: ask for a bigger page, keep showing what is there.
+  hasMore(s) { return s.list.length >= (this.limits.get(s.listKey) ?? PAGE); }
+  loadMore(cx) {
+    const s = this.st(); if (!s.listKey || s.loading || !this.hasMore(s)) return;
+    this.limits.set(s.listKey, (this.limits.get(s.listKey) ?? PAGE) + PAGE);
+    this.refresh(cx, true);
   }
   setFilter(patch, cx) { Object.assign(this.st(), patch); this.persist(); this.refresh(cx, false); cx.notify(); }
 
@@ -402,17 +412,29 @@ export default class Issues extends View {
       .child(div().flex_1())
       .when(s.loading && Boolean(s.listAt), (e) => e.child(icon("spinner", 12).text_color(t.dim).spin(900)))
       .when(Boolean(s.listAt) && !s.loading, (e) => e.child(div().text_color(t.dim).tooltip("Shown from the cache; fetched again after a minute, or Reload").child(since(s.listAt))));
-    const rows = s.list.map((i) => {
-      const k = keyOf(repo, i.number);
-      return v_flex().id(`i-${i.number}`).flex_none().px(8).py(6).gap(3).rounded(7).cursor_pointer()
-        .hover((st) => st.bg(t.hover)).on_hover((on, cx) => { if (on) this.prefetch(repo, i.number, cx); }).on_click((_e, cx) => { this.show(i.number, cx); cx.notify(); })
-        .child(h_flex().gap(8).items_start()
-          .child(div().w(14).flex_none().text_size(11).text_color(i.state === "OPEN" ? t.ansi2 : t.ansi5).child(i.state === "OPEN" ? "●" : "✓"))
-          .child(div().flex_1().min_w(0).text_size(12.5).whitespace_normal().child(i.title)))
-        .child(h_flex().gap(6).pl(22).text_size(11).text_color(t.dim).flex_wrap()
-          .child(`#${i.number}`).child(i.author?.login ?? "").child(ago(i.updatedAt))
-          .children((i.labels ?? []).slice(0, 3).map((l) => div().h(16).px(5).flex().items_center().rounded(4).bg(`#${l.color}26`).text_size(10).text_color(t.muted).child(l.name))));
-    });
+    // One fixed height per row (title and meta line truncate), so the virtual list knows where the end is.
+    const more = this.hasMore(s), count = s.list.length + (more ? 1 : 0);
+    const row = (i) => v_flex().id(`i-${i.number}`).w_full().h(ROW_H).flex_none().px(8).py(6).gap(3).rounded(7).overflow_hidden().hover((st) => st.bg(t.hover))
+      .child(h_flex().gap(8).items_start()
+        .child(div().w(14).flex_none().text_size(11).text_color(i.state === "OPEN" ? t.ansi2 : t.ansi5).child(i.state === "OPEN" ? "●" : "✓"))
+        .child(div().flex_1().min_w(0).truncate().text_size(12.5).child(i.title)))
+      .child(h_flex().gap(6).pl(22).text_size(11).text_color(t.dim).overflow_hidden()
+        .child(`#${i.number}`).child(i.author?.login ?? "").child(ago(i.updatedAt))
+        .children((i.labels ?? []).slice(0, 3).map((l) => div().h(16).px(5).flex().items_center().flex_none().rounded(4).bg(`#${l.color}26`).text_size(10).text_color(t.muted).child(l.name))));
+    const list = div().flex_1().min_h(0).relative().p(6)
+      .child(v_virtual_list("issues-list", count, ROW_H, (idx) => s.list[idx] ? String(s.list[idx].number) : "more",
+        (range, cx) => {
+          // The end row on screen: ask for the next page (once per page size).
+          if (range.end > s.list.length && more && !s.loading && this.moreAsked !== this.limits.get(s.listKey)) {
+            this.moreAsked = this.limits.get(s.listKey) ?? PAGE;
+            cx.spawn(async (cx) => this.loadMore(cx));
+          }
+          return Array.from({ length: range.end - range.start }, (_x, k) => range.start + k)
+            .map((idx) => s.list[idx] ? row(s.list[idx]) : div().id("issues-more").h(ROW_H).px(8).flex().items_center().gap(6).text_size(11.5).text_color(t.dim).child(icon("spinner", 12).text_color(t.dim).spin(900)).child("Loading more…"));
+        })
+        .on_item_click((key, cx) => { if (key !== "more") { this.show(Number(key), cx); cx.notify(); } })
+        .size_full())
+      .child(Scrollbar.vertical("issues-list").viewport_from_layout().absolute().inset_0());
     // Search docked at the bottom, like Changes' commit box.
     const search = h_flex().flex_none().p(10).gap(8).border_t(1).border_color(t.border)
       .child(div().id("search-box").flex_1().min_w(0).h(32).px(10).flex().items_center().rounded(8).border_1().border_color(t.border).cursor_text()
@@ -421,9 +443,7 @@ export default class Issues extends View {
     return v_flex().flex_1().min_h(0)
       .child(filters)
       .when(Boolean(s.error), (e) => e.child(div().px(12).py(6).text_size(11).text_color(t.ansi1).whitespace_normal().child(s.error)))
-      .child(s.loading && !s.listAt ? ui.loading("Loading issues…") : v_flex().id("list").flex_1().min_h(0).overflow_y_scrollbar().p(6).gap(1)
-        .when(!s.list.length && !s.error, (e) => e.child(div().p(8).text_color(t.dim).child("No issues")))
-        .children(rows))
+      .child(s.loading && !s.listAt ? ui.loading("Loading issues…") : (s.list.length ? list : div().flex_1().p(14).text_color(t.dim).child(s.error ? "" : "No issues")))
       .child(search);
   }
 

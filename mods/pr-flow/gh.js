@@ -54,8 +54,8 @@ export function createGh(exec) {
     },
     // Your PRs in one state ('open' or 'merged'), newest first.
     // Asked of every logged-in account, so a personal repo's PRs count as yours too.
-    mine: async (state = 'open') => {
-      const args = ['search', 'prs', '--author', '@me', state === 'merged' ? '--merged' : '--state=open', '--sort', 'updated', '--limit', state === 'merged' ? '20' : '100', '--json', 'url'];
+    mine: async (state = 'open', limit = 20) => {
+      const args = ['search', 'prs', '--author', '@me', state === 'merged' ? '--merged' : '--state=open', '--sort', 'updated', '--limit', String(limit), '--json', 'url'];
       const { logins } = await accounts.accounts();
       const lists = await Promise.all((logins.length ? logins : [null]).map(async (login) => {
         const r = await accounts.as(login, args).catch(() => null);
@@ -65,7 +65,26 @@ export function createGh(exec) {
       return [...new Set(lists.flat().filter(Boolean))];
     },
     // Any author's PRs of one repo in one state.
-    listRepo: async (repo, state = 'open') => (await json(['pr', 'list', '-R', repo, '--state', state, '--limit', '30', '--json', 'url'])).map((p) => p.url),
+    listRepo: async (repo, state = 'open', limit = 20) => (await json(['pr', 'list', '-R', repo, '--state', state, '--limit', String(limit), '--json', 'url'])).map((p) => p.url),
+    // How many PRs of one repo in one state ('open' | 'merged'), yours (all logins) or everyone's: GitHub's
+    // search count, one call each, no list fetched.
+    count: async (repo, state = 'open', scope = 'all') => {
+      const base = `repo:${repo} is:pr ${state === 'merged' ? 'is:merged' : 'is:open'}`;
+      let authors = [null];
+      if (scope === 'mine') {
+        const { logins } = await accounts.accounts();
+        authors = await Promise.all((logins.length ? logins : [null]).map(async (login) => {
+          const r = await accounts.as(login, ['api', 'user', '-q', '.login']);
+          return r.code === 0 ? String(r.stdout).trim() : null;
+        }));
+        authors = authors.filter(Boolean);
+      }
+      const counts = await Promise.all(authors.map(async (a) => {
+        const q = a ? `${base} author:${a}` : base;
+        return (await json(['api', `search/issues?q=${encodeURIComponent(q)}&per_page=1`])).total_count ?? 0;
+      }));
+      return counts.reduce((x, y) => x + y, 0);
+    },
     // Every logged-in account's GitHub login (what a PR's author shows; may differ from gh's own name for it).
     me: async () => {
       const { logins } = await accounts.accounts();

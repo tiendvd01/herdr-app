@@ -31,3 +31,7 @@ Panel GitHub issues ở cột phải (cùng stack `panel-body` với Files và C
 
 - `render()` không gọi `cx.notify()`; việc nặng (dò repo, tải danh sách, đổi space) chạy trong task rồi mới notify.
 - Chỉ phần "đọc và thao tác issue" được làm; tạo issue mới hay sửa nội dung chưa có.
+
+## Paging
+
+The list loads 30 at a time in a virtual list (fixed row height). Scrolling to the end row calls `gh issue list --limit` with a bigger page (gh has no cursor, so the limit grows). The hover prefetch is gone: a virtual list row can hold no handler.
