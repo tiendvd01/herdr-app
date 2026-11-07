@@ -369,6 +369,10 @@ export default class Issues extends View {
       link: (id, label, action) => div().id(id).h(24).px(8).flex().flex_none().items_center().rounded(6).text_size(12).text_color(t.dim)
         .cursor_pointer().hover((st) => st.bg(t.hover).text_color(t.foreground)).on_click(action).child(label),
       pill: (text) => div().h(24).px(8).flex().flex_none().items_center().rounded(6).border_1().border_color(t.border).text_size(12).text_color(t.muted).child(text),
+      // Centered spinner + label while nothing is on screen yet (same look as pr-flow).
+      loading: (label) => v_flex().flex_1().min_h(0).items_center().justify_center().gap(8)
+        .child(svg("mods/workspace-chrome/spinner.svg").size(18).text_color(t.dim).spin(900))
+        .child(div().text_size(12).text_color(t.dim).child(label)),
       subbar: () => h_flex().h(28).flex_none().px(12).gap(4).items_center().border_b(1).border_color(t.border).text_size(11),
     };
     const root = v_flex().id("issues").size_full().min_h(0).relative().rounded(10).overflow_hidden()
@@ -404,7 +408,7 @@ export default class Issues extends View {
       .child(div().w(1).h(14).mx(4).bg(t.border))
       .child(ui.toggle("mine", "Mine", s.mine, (_e, cx) => this.setFilter({ mine: !s.mine }, cx)))
       .child(div().flex_1())
-      .when(s.loading, (e) => e.child(svg("mods/workspace-chrome/spinner.svg").size(12).text_color(t.dim).spin(900)))
+      .when(s.loading && Boolean(s.listAt), (e) => e.child(svg("mods/workspace-chrome/spinner.svg").size(12).text_color(t.dim).spin(900)))
       .when(Boolean(s.listAt) && !s.loading, (e) => e.child(div().text_color(t.dim).tooltip("Shown from the cache; fetched again after a minute, or Reload").child(since(s.listAt))));
     const rows = s.list.map((i) => {
       const k = keyOf(repo, i.number);
@@ -426,9 +430,8 @@ export default class Issues extends View {
     return v_flex().flex_1().min_h(0)
       .child(filters)
       .when(Boolean(s.error), (e) => e.child(div().px(12).py(6).text_size(11).text_color(t.ansi1).whitespace_normal().child(s.error)))
-      .child(v_flex().id("list").flex_1().min_h(0).overflow_y_scrollbar().p(6).gap(1)
-        .when(s.loading && !s.list.length && !s.listAt, (e) => e.child(div().p(8).text_color(t.dim).child("Loading issues…")))
-        .when((!s.loading || s.listAt) && !s.list.length && !s.error, (e) => e.child(div().p(8).text_color(t.dim).child("No issues")))
+      .child(s.loading && !s.listAt ? ui.loading("Loading issues…") : v_flex().id("list").flex_1().min_h(0).overflow_y_scrollbar().p(6).gap(1)
+        .when(!s.list.length && !s.error, (e) => e.child(div().p(8).text_color(t.dim).child("No issues")))
         .children(rows))
       .child(search);
   }
@@ -450,7 +453,8 @@ export default class Issues extends View {
         .child(ui.toggle("summarize", run && !run.error ? "Summarizing…" : sum ? "Re-summarize" : "Summarize", false, (_e, cx) => this.summarize(cx)))
         .child(ui.toggle("browser", "GitHub ↗", false, () => exec("open", [d.url]))));
     const body = v_flex().id("detail").flex_1().min_h(0).overflow_y_scrollbar().p(12).gap(10);
-    if (!d) return v_flex().flex_1().min_h(0).child(bar).child(body.child(div().text_color(s.error ? t.ansi1 : t.dim).whitespace_normal().child(s.detailLoading ? "Loading issue…" : s.error ?? "")));
+    if (!d && s.detailLoading) return v_flex().flex_1().min_h(0).child(bar).child(ui.loading(`Loading issue #${n}…`));
+    if (!d) return v_flex().flex_1().min_h(0).child(bar).child(body.child(div().text_color(s.error ? t.ansi1 : t.dim).whitespace_normal().child(s.error ?? "")));
 
     // Cards like Changes' comment cards; markdown ids carry the space and issue.
     // `fold` = { folded, toggle }: the header becomes a button and a folded card shows only its header.
