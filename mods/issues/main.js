@@ -1,8 +1,8 @@
 // Issues: a GitHub issue manager in the side panel.
 // Each workspace (space) keeps its own state: repo, filters, search, the
 // list and the open issue. Switching spaces swaps them.
-// The repo comes from the focused terminal's folder (`gh repo view`), or one
-// typed in the bar (kept per space). Clicking an issue shows its body and
+// The repo comes from the space's fixed folder (space-folder.js, `gh repo
+// view`), whatever folder a terminal has cd'd into. Clicking an issue shows its body and
 // comments as markdown (TextView.markdown, native: mods have no web view).
 //
 // render() never calls cx.notify(): work it needs (detect the repo, load
@@ -11,6 +11,7 @@ import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextView } from "gpui-base";
 import { exec, theme, focused, spaces, appHome, home, notify, settings, props, openOverlay, readTextFile, writeTextFile } from "herdr";
 import { Viewer } from "./viewer.js";
+import { spaceFolder } from "./space-folder.js";
 import * as fs from "fs/promises";
 
 
@@ -122,10 +123,7 @@ export default class Issues extends View {
 
   // ---------- repo ----------
   space() { return spaces().find((s) => s.id === this.cur) ?? null; }
-  folder() {
-    const f = focused();
-    return (f?.space === this.cur ? f?.cwd : null) ?? this.space()?.folder ?? null;
-  }
+  folder() { return spaceFolder(this.space()); }
   repo() {
     const f = this.folder();
     return f ? this.autoRepo[f] ?? null : null;
@@ -380,7 +378,7 @@ export default class Issues extends View {
 
     // Header: title, count, the repo of this space (read from its folder), reload.
     const repoBox = h_flex().min_w(0).h(24).px(8).items_center().rounded(6).border_1().border_color(t.border).bg(t.raised)
-      .tooltip("The GitHub repo of this space's folder")
+      .tooltip(`The GitHub repo of this space's folder: ${this.folder() ?? "none"}`)
       .child(div().min_w(0).truncate().text_size(12).child(repo ?? "No repo"));
     const header = h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
       .child(div().flex_none().font_semibold().child("Issues"))

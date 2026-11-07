@@ -34,13 +34,13 @@ import { spaces, panes, focused, exec, readTextFile, watchFolder, theme, setting
 import { tokenize, languageOf } from "./highlight.js";
 import { ask } from "./ask.js";
 import { palette } from "./palette.js";
+import { activePlace } from "./space-folder.js";
 import { Dialog } from "./dialog.js";
 
+// The space's fixed folder (space-folder.js), not wherever a terminal has cd'd.
 function location() {
-  const space = spaces().find((s) => s.active), f = focused();
-  const pane = f?.pane ? panes().find(p => p.pane === f.pane) : null;
-  const on = f?.pane === null ? (f.terminal?.includes("/") ? f.terminal.split("/")[0] : null) : space?.machine ?? null;
-  return { cwd: pane?.cwd || f?.cwd || space?.folder, on };
+  const { cwd, on } = activePlace();
+  return { cwd, on };
 }
 const key = () => JSON.stringify(location());
 const countLines = (text) => text ? text.split("\n").length - Number(text.endsWith("\n")) : 0;

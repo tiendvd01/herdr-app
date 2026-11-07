@@ -1,5 +1,5 @@
 // The spaces list: right-aligned branches, nested worktrees and a PR status line.
-// Repository facts follow each space's first terminal.
+// Repository facts follow each space's fixed folder (git/space-folder.js).
 import { div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import {
@@ -18,6 +18,7 @@ import {
 } from "herdr";
 import { PRStatusObserver, prPlaceKey, prAppearance } from "../git/pr-status.js";
 import { spaceFolder, checkoutKey, readCheckout } from "../git/checkouts.js";
+import { pinSpaceFolders } from "../git/space-folder.js";
 import { loadSettings, duration } from "../settings.js";
 import { findNode } from "./find-node.js";
 import { TEXT, Icon, IconButton, Badge } from "./ui.js";
@@ -87,6 +88,7 @@ export class Spaces {
     // `git status` walks the whole tree, on another machine a process there:
     // only when its answer could have changed (see `due`).
     cx.timer.every(250, (cx) => this.checkNew(cx));
+    cx.timer.every(1000, () => pinSpaceFolders());
   }
 
   // Read the installed mod.json once; Herdr restarts the mod when it changes.
@@ -303,9 +305,9 @@ export class Spaces {
   menu(w) {
     // A popup is as tall as its items; height is only the most.
     openOverlay({
-      mod: "menu",
+      mod: "my-menu",
       kind: "popup",
-      width: 200,
+      width: 220,
       height: 260,
       props: { tab: "space", target: { id: w.id } },
     });
