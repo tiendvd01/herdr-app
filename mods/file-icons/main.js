@@ -69,14 +69,14 @@ export default class Files extends View {
     this.search = InputState.new({ placeholder: "Search files…" });
     this.search.on("change", (_e, cx) => { this.query = this.search.value().trim(); if (this.query) this.loadAll(cx); cx.notify(); });
     this.refresh(cx);
-    cx.timer.every(10000, cx => this.refresh(cx));
+    cx.timer.every(10000, cx => { this.reloadFile(cx); this.refresh(cx); });
   }
 
   watch(root, cx) {
     if (this.on || this.watched === root) return;
     this.watched = root;
     cx.spawn(async cx => {
-      try { while (this.watched === root) { await watchFolder(root); if (this.watched === root) this.refresh(cx); } }
+      try { while (this.watched === root) { await watchFolder(root); if (this.watched === root) { this.reloadFile(cx); this.refresh(cx); } } }
       catch { if (this.watched === root) this.watched = null; }
     });
   }
@@ -188,22 +188,34 @@ export default class Files extends View {
   }
 
   show(path, cx) {
-    this.code?.release(); this.code = null; this.file = path; this.fileError = null; this.md = null; this.mdPreview = true;
+    this.code?.release(); this.code = null; this.file = path; this.fileText = null; this.fileError = null; this.md = null; this.mdPreview = true;
     if (!path || !cx) return;
+    this.loadFile(path, cx, false);
+  }
+
+  // Re-reads the open file; the view is rebuilt only when the content changed (keeps scroll otherwise).
+  reloadFile(cx) {
+    if (this.file && !this.fileError && this.fileText !== null) this.loadFile(this.file, cx, true);
+  }
+
+  loadFile(path, cx, reload) {
     const context = this.context, root = this.root, on = this.on;
     cx.spawn(async cx => {
       try {
         const text = await readTextFile(`${root}/${path}`, { on });
         if (this.file !== path || key() !== context) return;
+        if (reload && text === this.fileText) return;
         if (text === null) { this.fileError = "This file is no longer available"; return; }
         if (text.includes("\0")) { this.fileError = "Binary file · no text preview"; return; }
+        this.fileText = text;
         const t = theme(), ext = path.includes(".") ? path.split(".").pop() : "txt";
-        if (/^(md|markdown)$/i.test(ext)) this.md = text.length > 400000 ? text.slice(0, 400000) + "\n\n… (file truncated)" : text;
-        this.code = EditorState.new({ language: LANG[ext] ?? ext, readonly: true,
-          value: text.length > 400000 ? text.slice(0, 400000) + "\n… (file truncated)" : text,
+        const shown = text.length > 400000 ? text.slice(0, 400000) + "\n… (file truncated)" : text;
+        this.code?.release();
+        this.md = /^(md|markdown)$/i.test(ext) ? shown : null;
+        this.code = EditorState.new({ language: LANG[ext] ?? ext, readonly: true, value: shown,
           font_family: settings().font_family, font_size: 12,
           syntax: { keyword: t.ansi5, string: t.ansi2, comment: t.dim, function: t.ansi4, type: t.ansi3, number: t.ansi1, constant: t.ansi6 } });
-      } catch { if (this.file === path && key() === context) this.fileError = "Cannot preview this file (binary, too large, or unreadable)"; }
+      } catch { if (!reload && this.file === path && key() === context) this.fileError = "Cannot preview this file (binary, too large, or unreadable)"; }
       finally { cx.notify(); }
     });
   }
