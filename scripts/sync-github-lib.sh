@@ -22,6 +22,8 @@ sync lib/space-folder.js \
   mods/my-worktree/space-folder.js \
   mods/open-vscode/space-folder.js \
   mods/branch-switch/space-folder.js \
+  mods/open-file/space-folder.js \
+  mods/file-icons/space-folder.js \
   mods/status-usage/space-folder.js \
   mods/inbox/space-folder.js
 sync lib/gh-account.js mods/pr-flow/gh-account.js mods/better-sidebar/git/gh-account.js mods/issues/gh-account.js mods/inbox/gh-account.js
@@ -29,7 +31,7 @@ sync lib/gh-account.js mods/pr-flow/gh-account.js mods/better-sidebar/git/gh-acc
 sync lib/pr-gh.js mods/pr-flow/gh.js mods/inbox/gh.js
 sync lib/pr-status.js mods/pr-flow/status.js mods/inbox/status.js
 # Panel buttons (Files, Changes, Issues, Git, Pull requests): one look for the five. Icons: lib/icons/.
-sync lib/panel-ui.js mods/file-icons/panel-ui.js mods/reviewer/panel-ui.js mods/issues/panel-ui.js mods/git-graph/panel-ui.js mods/pr-flow/panel-ui.js mods/mermaid-board/panel-ui.js mods/markdown-reader/panel-ui.js
+sync lib/panel-ui.js mods/file-icons/panel-ui.js mods/reviewer/panel-ui.js mods/issues/panel-ui.js mods/git-graph/panel-ui.js mods/pr-flow/panel-ui.js mods/mermaid-board/panel-ui.js
 # Markdown with mermaid diagrams and its zoomable viewer: Issues, Files and the Mermaid board.
-sync lib/markdown.js mods/issues/markdown.js mods/file-icons/markdown.js mods/mermaid-board/markdown.js mods/markdown-reader/markdown.js
-sync lib/diagram-viewer.js mods/issues/diagram-viewer.js mods/file-icons/diagram-viewer.js mods/mermaid-board/diagram-viewer.js mods/markdown-reader/diagram-viewer.js
+sync lib/markdown.js mods/issues/markdown.js mods/file-icons/markdown.js mods/mermaid-board/markdown.js
+sync lib/diagram-viewer.js mods/issues/diagram-viewer.js mods/file-icons/diagram-viewer.js mods/mermaid-board/diagram-viewer.js

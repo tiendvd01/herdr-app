@@ -12,12 +12,13 @@ import ICONS from "./icons.js";
 import { iconButton, chip } from "./panel-ui.js";
 import { Markdown } from "./markdown.js";
 import { Viewer } from "./diagram-viewer.js";
+import { activePlace } from "./space-folder.js";
 
+// The focused terminal's folder; while a mod pane (a file viewer tab, ...) is focused, the
+// space's last focused terminal (lib/space-folder.js), never Herdr's own home.
 function location() {
-  const space = spaces().find(s => s.active), f = focused();
-  const pane = f?.pane ? panes().find(p => p.pane === f.pane) : null;
-  const on = f?.pane === null ? (f.terminal?.includes("/") ? f.terminal.split("/")[0] : null) : space?.machine ?? null;
-  return { cwd: pane?.cwd || f?.cwd || space?.folder, on };
+  const { cwd, on } = activePlace();
+  return { cwd, on };
 }
 const key = () => JSON.stringify(location());
 const LANG = { ts: "js", tsx: "js", mts: "js", cts: "js", jsx: "js", mjs: "js", toml: "yaml", jsonc: "json", svelte: "html", vue: "html" };
@@ -68,8 +69,26 @@ export default class Files extends View {
     this.query = ""; this.all = null; this.allLoading = false;
     this.search = InputState.new({ placeholder: "Search files…" });
     this.search.on("change", (_e, cx) => { this.query = this.search.value().trim(); if (this.query) this.loadAll(cx); cx.notify(); });
+    // Opened in a tab of its own (props.file = an absolute path): a viewer for that one file. It never
+    // follows the focused terminal's folder (the panel does), so it keeps showing its file wherever focus is.
+    const pinned = props()?.file;
+    if (pinned) {
+      this.pinned = true; this.context = "pinned"; this.on = props().on ?? null;
+      this.root = pinned.slice(0, pinned.lastIndexOf("/")) || "/";
+      this.show(pinned, cx);
+      cx.timer.every(10000, cx => this.reloadFile(cx));
+      return;
+    }
     this.refresh(cx);
     cx.timer.every(10000, cx => { this.reloadFile(cx); this.refresh(cx); });
+  }
+
+  // The folder context this copy shows: the panel follows the focused terminal, a file tab is fixed.
+  ctx() { return this.pinned ? this.context : key(); }
+
+  // A file is read in a tab of its own (a Files preview pane), next to the terminals.
+  openTab(path) {
+    run("tab.new", { name: path.split("/").pop(), mod: "file-icons", props: { file: path.startsWith("/") ? path : `${this.root}/${path}`, on: this.on } });
   }
 
   watch(root, cx) {
@@ -158,7 +177,7 @@ export default class Files extends View {
     return list.map(path => {
       const name = path.split("/").pop(), dir = path.slice(0, path.length - name.length - 1);
       return h_flex().id(`found-${path}`).h(28).flex_none().px(8).gap(7).items_center().rounded(7).cursor_pointer().hover(s => s.bg(t.hover))
-        .on_click((_e, cx) => { this.show(path, cx); })
+        .on_click(() => this.openTab(path))
         .child(image(icon(path, false, false, dark)).size(16).flex_none())
         .child(div().flex_none().max_w(200).truncate().child(name))
         .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(dir))
@@ -202,8 +221,8 @@ export default class Files extends View {
     const context = this.context, root = this.root, on = this.on;
     cx.spawn(async cx => {
       try {
-        const text = await readTextFile(`${root}/${path}`, { on });
-        if (this.file !== path || key() !== context) return;
+        const text = await readTextFile(path.startsWith("/") ? path : `${root}/${path}`, { on }); // absolute: a file outside the folder (cmd-p)
+        if (this.file !== path || this.ctx() !== context) return;
         if (reload && text === this.fileText) return;
         if (text === null) { this.fileError = "This file is no longer available"; return; }
         if (text.includes("\0")) { this.fileError = "Binary file · no text preview"; return; }
@@ -215,14 +234,14 @@ export default class Files extends View {
         this.code = EditorState.new({ language: LANG[ext] ?? ext, readonly: true, value: shown,
           font_family: settings().font_family, font_size: 12,
           syntax: { keyword: t.ansi5, string: t.ansi2, comment: t.dim, function: t.ansi4, type: t.ansi3, number: t.ansi1, constant: t.ansi6 } });
-      } catch { if (!reload && this.file === path && key() === context) this.fileError = "Cannot preview this file (binary, too large, or unreadable)"; }
+      } catch { if (!reload && this.file === path && this.ctx() === context) this.fileError = "Cannot preview this file (binary, too large, or unreadable)"; }
       finally { cx.notify(); }
     });
   }
 
   // Opens the file in neovim in a new tab.
   edit(path) {
-    run("tab.new", { name: path.split("/").pop(), folder: this.root, argv: ["nvim", `${this.root}/${path}`] });
+    run("tab.new", { name: path.split("/").pop(), folder: this.root, argv: ["nvim", path.startsWith("/") ? path : `${this.root}/${path}`] });
   }
 
   editButton(path, small) {
@@ -244,7 +263,7 @@ export default class Files extends View {
       const path = prefix ? `${prefix}/${entry.name}` : entry.name, open = this.folders.has(path), mark = this.marks[`${this.root}/${path}`];
       out.push(h_flex().id(`file-${path}`).h(28).flex_none().pl(8 + depth * 18).pr(8).gap(7).items_center().rounded(7).cursor_pointer().hover(s => s.bg(t.hover))
         .when(this.isIgnored(path), el => el.opacity(0.45))
-        .on_click((_e, cx) => entry.dir ? this.toggle(path, cx) : this.show(path, cx))
+        .on_click((_e, cx) => entry.dir ? this.toggle(path, cx) : this.openTab(path))
         .child(entry.dir ? svg(`${DIR}/chevron-${open ? "down" : "right"}.svg`).size(12).flex_none().text_color(t.dim) : div().w(12).flex_none())
         .child(image(icon(path, entry.dir, open, dark)).size(16).flex_none())
         .child(div().flex_1().min_w(0).truncate().child(entry.name))
@@ -257,11 +276,11 @@ export default class Files extends View {
 
   render(cx) {
     if (this.viewer) return this.viewer.render(cx);
-    if (key() !== this.context) this.refresh(cx);
+    if (!this.pinned && key() !== this.context) this.refresh(cx);
     const t = theme(), dark = Boolean(settings().dark);
     return v_flex().id("files").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13)
       .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
-        .when(Boolean(this.file), el => el.child(div().id("files-back").w(20).cursor_pointer().text_color(t.muted).on_click((_e, cx) => { this.show(null); cx.notify(); }).child("←")))
+        .when(Boolean(this.file) && !this.pinned, el => el.child(div().id("files-back").w(20).cursor_pointer().text_color(t.muted).on_click((_e, cx) => { this.show(null); cx.notify(); }).child("←")))
         .child(div().font_semibold().child("Files"))
         .when(Boolean(this.file && this.md !== null), el => el.child(h_flex().id("files-mdmode").gap(2).flex_none()
           .children([["Preview", true], ["Source", false]].map(([label, v]) =>

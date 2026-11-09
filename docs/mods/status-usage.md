@@ -4,7 +4,7 @@ Clone của `workspace-status`. Thanh dưới cùng của cửa sổ, đồng th
 
 ## Thanh hiển thị
 
-Từ trái sang phải: máy hiện tại, branch của space đang chọn (bấm để đổi, xem dưới), số agent (kèm "N needs you" khi có agent blocked), badge tiến trình, mức dùng AI, gợi ý phím mở palette.
+Từ trái sang phải: máy hiện tại, branch của space đang chọn (bấm để đổi, xem dưới), số agent (kèm "N needs you" khi có agent blocked), badge tiến trình, mức dùng AI, nút **Mermaid** (mở `mermaid-board`), gợi ý phím mở palette.
 
 ## Đổi branch
 
