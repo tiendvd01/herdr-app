@@ -58,7 +58,8 @@
     "ctrl-8": "space.select:8",
     "ctrl-9": "space.select:9",
     "ctrl-b": "mod.open:tmux-prefix",
-    "cmd-g": "mod.open:open-vscode"
+    "cmd-g": "mod.open:open-vscode",
+    "cmd-shift-m": "mod.open:mermaid-board"
   },
   "terminal": {
     "cmd-c": "terminal.copy",

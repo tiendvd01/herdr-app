@@ -48,7 +48,7 @@ The panels follow the focused terminal's folder (`lib/space-folder.js`, copied i
 
 Buttons in the five right-side panels (Files, Changes, Issues, Git, Pull requests) come from `lib/panel-ui.js` with icons in `lib/icons/` (synced by the same script): icon + tooltip for well-known actions, arrow + label for Back, text chips for filters, text buttons for actions. See `docs/panel-ui.md`.
 
-Per-mod behaviour notes live in `docs/mods/` (kept outside `mods/` because saving any file under a mod folder hot-reloads it): `processes` (Sessions dialog), `status-usage` (status bar, AI usage limits, post-create runner), `project-settings` (Ports + Worktree script), `issues`, `reviewer` (Changes), `inbox`. Update the matching file when changing a mod's behaviour.
+Per-mod behaviour notes live in `docs/mods/` (kept outside `mods/` because saving any file under a mod folder hot-reloads it): `mermaid-board` (dán + preview + lưu sơ đồ mermaid), `processes` (Sessions dialog), `status-usage` (status bar, AI usage limits, post-create runner), `project-settings` (Ports + Worktree script), `issues`, `reviewer` (Changes), `inbox`. Update the matching file when changing a mod's behaviour.
 
 ## Git
 

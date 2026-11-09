@@ -44,3 +44,6 @@ mods/issues/.diagrams/
 
 # File-icons panel: rendered mermaid diagrams (cache)
 mods/file-icons/.diagrams/
+
+# Mermaid board: rendered preview cache
+mods/mermaid-board/.diagrams/

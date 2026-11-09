@@ -3,10 +3,10 @@
   "sounds": {
     "enabled": true
   },
-  "font": "BlexMono Nerd Font Mono",
-  "font_size": 12.0,
+  "font": "ZedMono Nerd Font Mono",
+  "font_size": 13.0,
   "font_ligatures": false,
-  "ui_font": "BlexMono Nerd Font",
+  "ui_font": "ZedMono Nerd Font",
   "minimum_contrast": 1.0,
   "appearance": "dark"
 }

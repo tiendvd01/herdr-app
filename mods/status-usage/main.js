@@ -167,6 +167,7 @@ export default class WorkspaceStatus extends View {
       .child(this.procBadge(t))
       .child(usage)
       .child(div().flex_1())
+      .child(div().id("mermaid").cursor_pointer().hover((s) => s.text_color(t.foreground)).on_click(() => run("mod.open", { name: "mermaid-board" })).child("Mermaid"))
       .child(div().id("palette").text_color(t.dim).on_click(() => run("app.palette")).child(this.hint(t)));
   }
 }
