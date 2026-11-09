@@ -66,6 +66,7 @@ export default class Files extends View {
     if (props()?.viewer) { this.viewer = Object.create(Viewer.prototype); this.viewer.init(_props, cx); return; }
     this.entries = new Map(); this.folders = new Set(); this.pending = new Set(); this.marks = {}; this.ignored = new Set();
     this.mdView = new Markdown("file-icons");
+    this.mdY = 0; this.mdViewH = 0; this.mdContentH = 0; // hand-kept preview scroll (mdPane)
     this.width = 360;
     this.query = ""; this.all = null; this.allLoading = false;
     this.search = InputState.new({ placeholder: "Search files…" });
@@ -208,7 +209,7 @@ export default class Files extends View {
   }
 
   show(path, cx) {
-    this.code?.release(); this.code = null; this.file = path; this.fileText = null; this.fileError = null; this.md = null; this.mdPreview = true;
+    this.code?.release(); this.code = null; this.file = path; this.fileText = null; this.fileError = null; this.md = null; this.mdPreview = true; this.mdY = 0;
     if (!path || !cx) return;
     this.loadFile(path, cx, false);
   }
@@ -275,6 +276,24 @@ export default class Files extends View {
     return out;
   }
 
+  // The markdown preview scrolls by hand: GPUI drops a scroll area's offset while its tab is hidden and no
+  // API reads or sets it, so the offset lives on this instance (kept across tab switches) and the content is
+  // shifted up by it. Wheel and trackpad move it; the thumb only shows where you are.
+  mdPane(t, cx) {
+    const view = this.mdViewH, total = this.mdContentH, max = Math.max(0, total - view);
+    const y = Math.min(this.mdY, max);
+    const scrollTo = (v, cx) => { v = Math.max(0, Math.min(max, v)); if (v !== this.mdY) { this.mdY = v; cx.notify(); } };
+    const measure = (field) => (size, cx) => { if (Math.abs(size.height - this[field]) > 0.5) { this[field] = size.height; cx.notify(); } };
+    const thumb = max > 0 ? Math.max(24, view * view / total) : 0;
+    return div().id("files-md").flex_1().min_h(0).relative().overflow_hidden()
+      .on_size_change(measure("mdViewH"))
+      .on_scroll_wheel((e, cx) => scrollTo(y - (e.delta_lines ? e.delta_lines.y * 20 : e.delta.y), cx))
+      .child(div().id("files-md-body").absolute().left(0).right(0).top(-y).p(12).text_size(12.5)
+        .on_size_change(measure("mdContentH"))
+        .child(this.mdView.render(`files-md-${this.file}`, this.md, t, cx, { width: this.width, title: this.file })))
+      .when(max > 0, el => el.child(div().absolute().right(2).top((view - thumb) * y / max).w(6).h(thumb).rounded(3).bg(t.border)));
+  }
+
   render(cx) {
     if (this.viewer) return this.viewer.render(cx);
     if (!this.pinned && key() !== this.context) this.refresh(cx);
@@ -305,8 +324,7 @@ export default class Files extends View {
         .when(Boolean(this.error) || !this.entries.get("")?.length, el => el.child(div().p(8).text_size(12).text_color(t.dim).child(this.error || (this.loading ? "Loading files…" : this.root ? "No files" : "No folder"))))
         .when(this.limited, el => el.child(div().p(8).text_size(11).text_color(t.dim).child("File list limited to 500 entries per folder and 5,000 total")))))
       .when(Boolean(this.file), el => el.child(this.code && this.md !== null && this.mdPreview
-        ? div().id("files-md").flex_1().min_h(0).overflow_y_scrollbar().p(12).text_size(12.5)
-            .child(this.mdView.render(`files-md-${this.file}`, this.md, t, cx, { width: this.width, title: this.file }))
+        ? this.mdPane(t, cx)
         : this.code ? Editor.new(this.code).flex_1().min_h(0) : div().p(12).text_color(t.dim).child(this.fileError || "Loading file…")));
   }
 }
