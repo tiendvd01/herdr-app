@@ -112,7 +112,8 @@ export default class Tabs extends View {
       : 10;
     const panel = find(root, "panel"), body = find(root, "panel-body");
     const enabled = [...(shared("workspace.panels") ?? ["files", "changes"]), "issues", "graph", "prs"];
-    this.syncPanel(space, panel, body, enabled);
+    // Changes is a dialog now (reviewer mod), not a child of the right panel stack.
+    this.syncPanel(space, panel, body, enabled.filter(id => id !== "changes"));
     if (JSON.stringify(location()) !== this.diffKey) this.refreshDiff(cx, true);
     const d = this.diff;
     const counts = d && (d.add || d.del)
@@ -131,13 +132,20 @@ export default class Tabs extends View {
         }).tooltip(label)
         .child(svg(icon).size(14)).when(Boolean(extra), el => el.child(extra));
     };
+    // Changes opens the reviewer as a dialog; shared "reviewer.dialog" holds its overlay id while open.
+    const changesOpen = shared("reviewer.dialog") != null;
+    const changesButton = h_flex().id("panel-changes").h(26).px(counts ? 7 : 0).min_w(26).gap(5).flex_none().items_center().justify_center().rounded(6)
+      .text_size(12).bg(changesOpen ? t.selected : t.chrome).text_color(changesOpen ? t.foreground : t.muted)
+      .hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
+      .on_click(() => run("mod.open", { name: "reviewer" })).tooltip("Changes  ⌘⇧G")
+      .child(svg("mods/changes/changes.svg").size(14)).when(Boolean(counts), el => el.child(counts));
     return h_flex().size_full().min_w(0).px(10).pl(lightsPadding).gap(3).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .on_mouse_up("left", () => { this.pressed = null; })
       .on_scroll_wheel(e => { if (Math.abs(e.delta.y) >= 1) run(e.delta.y > 0 ? "tab.prev" : "tab.next"); })
       .child(h_flex().id("tab-scroll").flex_1().min_w(0).h_full().items_center().gap(3).overflow_x_scrollbar().children(shown.map(item)))
       .child(button("tab-new", "+", () => openOverlay({ mod: "my-new-menu", kind: "popup", width: 250, height: 543 })))
       .when(enabled.includes("files"), el => el.child(panelButton("files", "Files", "mods/files/file.svg", null, "browse the space's folder")))
-      .when(enabled.includes("changes"), el => el.child(panelButton("changes", "Changes", "mods/changes/changes.svg", counts, d && (d.add || d.del) ? `+${d.add} −${d.del} uncommitted lines` : "no uncommitted changes")))
+      .when(enabled.includes("changes"), el => el.child(changesButton))
       .child(panelButton("issues", "Issues", "mods/issues/issue.svg", null, "GitHub issues of this repo"))
       .child(panelButton("graph", "Git", "mods/git-graph/icons/graph.svg", null, "commit graph of this repo"))
       .child(panelButton("prs", "Pull requests", "mods/my-tabs/pull-request.svg", null, "open pull requests of your agents' branches"))

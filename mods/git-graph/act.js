@@ -1,4 +1,4 @@
-import { exec, notify, setShared, openOverlay, run } from "herdr";
+import { exec, notify, setShared, shared, openOverlay, run } from "herdr";
 import { dialogFor, dialogHeight, doneText } from "./git.js";
 import { executeAction } from "./execute.js";
 
@@ -33,6 +33,7 @@ export function openDialog(action, ctx) {
 }
 
 export function showChanges() {
-  run("layout.select", { stack: "panel-body", child: "changes" });
-  run("layout.show", { id: "panel" });
+  // Changes is a dialog (reviewer mod); reuse it when already open.
+  if (shared("reviewer.dialog") != null) return;
+  run("mod.open", { name: "reviewer" });
 }

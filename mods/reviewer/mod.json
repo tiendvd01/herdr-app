@@ -4,5 +4,10 @@
   "cloned_from": {
     "name": "changes",
     "version": "0.1.8"
+  },
+  "overlay": {
+    "kind": "dialog",
+    "width": 0.9,
+    "height": 0.9
   }
 }

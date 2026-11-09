@@ -75,8 +75,8 @@ export default class OpenFile extends View {
 
   key(e, cx) {
     if (e.key === "escape") { closeOverlay(props().overlay); cx.stop_propagation(); }
-    else if (e.key === "down") { this.selected = Math.min(this.selected + 1, this.matches.length - 1); cx.notify(); }
-    else if (e.key === "up") { this.selected = Math.max(this.selected - 1, 0); cx.notify(); }
+    else if (e.key === "down" || (e.key === "n" && e.modifiers?.control)) { this.selected = Math.min(this.selected + 1, this.matches.length - 1); cx.notify(); cx.stop_propagation(); }
+    else if (e.key === "up" || (e.key === "p" && e.modifiers?.control)) { this.selected = Math.max(this.selected - 1, 0); cx.notify(); cx.stop_propagation(); }
     else if (e.key === "tab") {
       const m = this.matches[this.selected];
       if (m && isPath(this.input.value().trim())) this.input.set_value(m.display);

@@ -14,8 +14,8 @@
 // strip under it when the panel is narrow), so the rows never move: a
 // list row may hold no input, so the box can't sit between the lines.
 // Keys: "reviewer.submit", "reviewer.ask" (about the whole
-// diff), "reviewer.clear" (drops the draft comments), "reviewer.wrap" and
-// "reviewer.split" (toggle line wrap and the side-by-side view); in the send
+// diff), "reviewer.clear" (drops the draft comments), "reviewer.split"
+// (toggles the side-by-side view; long lines always wrap); in the send
 // dialog (dialog.js) "reviewer.send" and "reviewer.close".
 // Another mod opens a file's diff by setting shared "reviewer.open" to
 // { id, at: Date.now(), path (absolute), on (machine or null) }: the panel
@@ -104,16 +104,23 @@ function diffRows(lines, lang) {
 }
 
 export default class Changes extends View {
+  // Opened as the Changes dialog (mod.open): shared "reviewer.dialog" holds the overlay id while open.
+  async close() {
+    const id = props()?.overlay;
+    if (!this.dialog && id != null && shared("reviewer.dialog") === id) setShared("reviewer.dialog", null);
+  }
+
   init(_props, cx) {
     // Opened as the send dialog (ask.js): this copy is the dialog, nothing else.
     if (props()?.dialog) { this.dialog = Object.create(Dialog.prototype); this.dialog.init(_props, cx); return; }
+    if (props()?.overlay != null) setShared("reviewer.dialog", props().overlay);
     this.files = []; this.rows = []; this.index = new Map(); this.items = []; this.sizes = []; this.diffWidth = 0; this.gutter = 30; this.message = "";
     this.comments = []; this.composer = null; this.handle = cx.focus_handle(); this.scroll = VirtualListScrollHandle.new();
     this.fontSize = codeSize(); this.row = rowOf(this.fontSize);
     // Wrap and split are remembered by this copy of the panel.
     let view = {};
     try { view = JSON.parse(localStorage.getItem("view") ?? "{}") ?? {}; } catch { view = {}; }
-    this.wrap = Boolean(view.wrap); this.split = Boolean(view.split); this.tree = Boolean(view.tree); this.showDiff = view.diff !== false; this.collapsed = new Set(); this.areaW = 0; this.pairs = []; this.pairOf = new Map();
+    this.wrap = true; /* always wrap long lines (no toggle) */ this.split = Boolean(view.split); this.tree = Boolean(view.tree); this.showDiff = view.diff !== false; this.collapsed = new Set(); this.areaW = 0; this.pairs = []; this.pairOf = new Map();
     this.scope = "work"; this.scopeInfo = null; this.choosingScope = false; this.ref = "HEAD";
     this.input = InputState.new({ placeholder: "Commit message" });
     this.input.on("change", (_e, cx) => {
@@ -139,7 +146,6 @@ export default class Changes extends View {
         else if (c === "submit") this.submit(cx);
         else if (c === "clear") this.setComments([], cx);
         else if (c === "scope") this.cycleScope(cx);
-        else if (c === "wrap") this.setView({ wrap: !this.wrap }, cx);
         else if (c === "split") this.setView({ split: !this.split }, cx);
         cx.notify();
       }
@@ -375,15 +381,8 @@ export default class Changes extends View {
     try { localStorage.setItem("view", JSON.stringify({ wrap: this.wrap, split: this.split, tree: this.tree, diff: this.showDiff })); } catch { /* not kept */ }
     this.measure(); cx.notify();
   }
-  // Split needs SPLIT_MIN px of diff: turning it on widens the panel (layout.resize) when it is narrower.
-  toggleSplit(cx) {
-    const on = !this.split;
-    this.setView({ split: on }, cx);
-    if (on && this.areaW && this.areaW < SPLIT_MIN) {
-      const px = Math.min(1200, Math.ceil((this.size?.width ?? 368) + (SPLIT_MIN - this.areaW)) + 24);
-      try { run("layout.resize", { id: "panel", px }); } catch { /* the panel keeps its width */ }
-    }
-  }
+  // Split needs SPLIT_MIN px of diff; the dialog is wide enough, a narrower one stays one column.
+  toggleSplit(cx) { this.setView({ split: !this.split }, cx); }
   // Split view: each hunk's removed lines face its added lines, context faces itself.
   buildPairs() {
     const pairs = [], pairOf = new Map();
@@ -776,8 +775,7 @@ export default class Changes extends View {
         .child(iconButton("changes-toggle", this.showDiff ? "chevron-down" : "chevron-right", this.showDiff ? "Collapse the changes section" : "Expand the changes section", (_e, cx) => this.setView({ showDiff: !this.showDiff }, cx)))
         .child(div().text_size(12).font_semibold().child("Changes"))
         .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(this.open ?? ""))
-        .when(this.showDiff, (e) => e.child(chip("view-wrap", "Wrap", this.wrap, (_e, cx) => this.setView({ wrap: !this.wrap }, cx), { tip: "Wrap long lines" }))
-          .child(chip("view-split", "Split", this.split, (_e, cx) => this.toggleSplit(cx), { tip: this.areaW && this.areaW < SPLIT_MIN ? `Side by side (the panel needs ${SPLIT_MIN}px; it is one column until then)` : "Old and new side by side" })));
+        .when(this.showDiff, (e) => e.child(chip("view-split", "Split", this.split, (_e, cx) => this.toggleSplit(cx), { tip: this.areaW && this.areaW < SPLIT_MIN ? `Side by side (needs ${SPLIT_MIN}px; it is one column until then)` : "Old and new side by side" })));
     const mkDiff = () => v_flex().size_full().min_h(0).child(mkBar())
       .child(h_flex().flex_1().min_h(0).items_stretch()
         .child(div().id("changes-area").flex_1().min_w(0).min_h(0).relative().font_family(codeFont()).text_size(this.fontSize)

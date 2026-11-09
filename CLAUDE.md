@@ -25,7 +25,7 @@ After each edit, check the matching `<name>.error` file (`layout.error`, `keys.e
 The window is `layouts/tiendvd-layout.json`, a tree of `row`/`column`/`stack`/`block` nodes. Each block names a mod. The pieces wired together:
 
 - Left sidebar: `my-chrome` (brand and footer), `better-sidebar`, `my-agents`, `inbox`.
-- Work column: `my-tabs` (tab bar), then `content` (tab panes, with `project-settings` as the other stack child), then a right `panel-body` stack of `files` (mod `file-icons`) / `reviewer` (the Changes panel) / `issues`, then `status-usage` as the status bar.
+- Work column: `my-tabs` (tab bar), then `content` (tab panes, with `project-settings` as the other stack child), then a right `panel-body` stack of `files` (mod `file-icons`) / `issues` / `git-graph` / `pr-flow` (Changes, mod `reviewer`, opens as a dialog from the tab bar), then `status-usage` as the status bar.
 - Keys live in `keys.json` (macOS `cmd-*` bindings; `tmux-prefix` mod adds a prefix mode).
 
 ## Mods: what is yours and what isn't
