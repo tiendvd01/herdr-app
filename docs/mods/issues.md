@@ -10,6 +10,7 @@ Panel GitHub issues ở cột phải (cùng stack `panel-body` với Files và C
 - Bấm một issue để xem nội dung và comment (render markdown native, link mở bằng `open`). Có nút icon mở ngoài (tooltip "Open on GitHub") để mở issue trên web. Mod không đóng/mở lại issue; việc đó làm trên web.
 - **Thu gọn comment**: bấm tiêu đề một comment (mũi tên ▾/▸) để gập/mở; comment gập chỉ còn tiêu đề kèm 80 ký tự đầu. Nút "Collapse comments" / "Expand comments" ở thanh trên gập hoặc mở tất cả. Trạng thái gập chỉ giữ trong bộ nhớ, theo space, và reset khi mở issue khác (khóa theo `c.id` của comment).
 - **Sơ đồ mermaid** trong body/comment (khối ` ```mermaid `) được vẽ thành ảnh bằng `mmdc` (mermaid-cli), chạy qua `zsh -ilc` để lấy node từ nvm. Code dùng chung với panel Files: `lib/markdown.js` + `lib/diagram-viewer.js` (sửa ở `lib/` rồi chạy `scripts/sync-github-lib.sh`). Ảnh nằm giữa, co giãn về khoảng 70% độ rộng panel/tab (`FILL`; phóng to tối đa 2 lần, `ZOOM` trong `lib/markdown.js`; khi phóng to thì dùng bản vẽ 4x cho nét). Sơ đồ lỗi thì hiện câu báo lỗi của `mmdc` (bỏ stack trace) kèm source. Bấm ảnh mở viewer (hộp thoại). Ảnh cache ở `mods/issues/.diagrams/` (gitignored).
+- **Tô màu code**: khối code có rào (` ```ts `, ` ```python `, …) được tô màu bằng highlight.js 11.11.1 (bản "common", ~36 ngôn ngữ, vendor ở `lib/vendor/highlight.min.js`; ánh xạ scope → màu theme trong `lib/code-highlight.js`). Khối có thanh tiêu đề ghi ngôn ngữ và nút copy; dòng dài cuộn ngang. Ngôn ngữ lạ hoặc không ghi thì hiện chữ thường trong cùng khung. Khối quá 400 dòng để TextView vẽ (không màu). Dùng chung cho Files và Mermaid board.
 - **Loading**: fetch danh sách mà bộ lọc đó chưa có cache thì cả vùng danh sách thay bằng spinner giữa khung kèm "Loading issues…", giống pr-flow. Đã có cache thì vẫn hiện danh sách cũ trong lúc tải lại, chỉ có spinner nhỏ ở thanh lọc. Mở issue chưa có cache thì hiện "Loading issue #N…"; issue đã có cache vẫn hiện nội dung cũ, spinner nhỏ ở thanh trên.
 
 ## Tóm tắt bằng AI
@@ -25,6 +26,8 @@ Panel GitHub issues ở cột phải (cùng stack `panel-body` với Files và C
 ## Cache
 
 - Danh sách và issue chi tiết được giữ trong bộ nhớ và `data/issues/cache.json`, ghi lại mỗi 5 giây khi có thay đổi. Mở lại thì hiện bản cache ngay rồi `gh` lấy bản mới phía sau (dòng "updated ... ago").
+- Các space cùng repo (ví dụ space chính và space worktree) dùng chung một khóa danh sách: kết quả `gh` được ghi vào mọi space đang xem khóa đó, không chỉ space đã gọi.
+- Một lần fetch đang chạy (`inflight`) quá 45 giây (`STUCK`; `gh` có timeout 30 giây) bị coi là đã mất và không còn chặn khóa đó, nên panel không thể kẹt loading mãi.
 - Mọi thao tác dùng CLI `gh`, nên cần `gh auth login` trước. Lỗi `gh` hiện toast "gh failed".
 
 ## Lưu ý khi sửa code

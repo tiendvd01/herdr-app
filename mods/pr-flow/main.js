@@ -926,6 +926,7 @@ export default class PrFlow extends View {
   }
 
   renderViewer(t, cx) {
+    const tr = this.t;
     const want = shared(VIEW_KEY);
     if (want && want.at !== this.loaded) this.loadViewer(want, cx);
     const target = this.target;

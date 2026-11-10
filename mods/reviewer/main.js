@@ -783,7 +783,7 @@ export default class Changes extends View {
         const f = r.file, depth = r.depth, parts = f.path.split("/"), name = parts.pop(), k = perFile[f.path];
         return h_flex().id(`change-${f.path}`).h(28).flex_none().pl(8 + depth * 12).pr(8).gap(8).items_center().rounded(7).cursor_pointer().when(this.open === f.path, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover)).on_click((_e, cx) => this.pick(f.path, cx))
           .child(div().w(14).text_size(11).text_color(f.status === "A" ? t.ansi2 : f.status === "D" ? t.ansi1 : f.status === "U" ? t.ansi1 : t.blocked).child(f.status))
-          .child(h_flex().flex_1().min_w(0).when(!this.tree, (e) => e.child(div().text_color(t.dim).truncate().child(parts.length ? parts.join("/") + "/" : ""))).child(div().max_w(260).min_w(0).truncate().child(name)))
+          .child(h_flex().flex_1().min_w(0).overflow_hidden().when(!this.tree, (e) => e.child(div().min_w(0).text_color(t.dim).truncate().child(parts.length ? parts.join("/") + "/" : ""))).child(div().flex_none().whitespace_nowrap().child(name)))
           // One speech bubble: the draft count when there are drafts, and a click comments on the whole file.
           .child(h_flex().id(`comment-file-${f.path}`).h(18).min_w(18).px(k ? 5 : 0).gap(3).items_center().justify_center().rounded(4).cursor_pointer()
             .when(Boolean(k), (e) => e.bg(t.accent + "33").text_size(10).text_color(t.foreground))

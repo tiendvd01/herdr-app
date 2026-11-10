@@ -39,6 +39,7 @@ const hash = (str) => { let h = 5381; for (let i = 0; i < str.length; i++) h = (
 // Cache: a list or an issue fetched less than FRESH ago is not fetched again.
 // The list loads a page at a time: scrolling to the end asks gh for PAGE more (gh has no cursor, so --limit grows).
 const PAGE = 30, ROW_H = 58;
+const GH_TIMEOUT = 30_000, STUCK = GH_TIMEOUT + 15_000;
 const FRESH = 60_000, MAX_LISTS = 60, MAX_ISSUES = 300;
 // AI summaries live outside the project, in the user's home (not in git, not in the app home):
 // summaries.json maps "owner/repo#n" -> { text, version, model, at }; jobs/ holds a running claude's files.
@@ -81,7 +82,7 @@ export default class Issues extends View {
     this.sumRun = {}; // key -> { error } while a summary runs (or failed)
     this.width = 360;
     this.limits = new Map(); // list key -> how many issues were asked for
-    this.cache = { lists: {}, issues: {} }; this.tried = {}; this.inflight = new Set(); this.dirty = false;
+    this.cache = { lists: {}, issues: {} }; this.tried = {}; this.inflight = new Map(); this.dirty = false; // inflight: id -> start time, see busy()
     cx.spawn(async (cx) => {
       await this.loadCache();
       // Whatever the spaces show already comes from the cache now.
@@ -154,6 +155,13 @@ export default class Issues extends View {
   // used as is; an older one shows while gh fetches the new one behind it
   // (stale-while-revalidate). Reload always fetches. Hovering a row fetches
   // that issue ahead of the click.
+  // A fetch in flight. One older than STUCK (exec gives up after GH_TIMEOUT) is
+  // treated as lost (a cancelled task, a throw before cleanup) so it can't block that key for good.
+  busy(id) {
+    const at = this.inflight.get(id);
+    if (at != null && Date.now() - at > STUCK) this.inflight.delete(id);
+    return this.inflight.has(id);
+  }
   cached(kind, key) { return this.cache[kind][key] ?? null; }
   isFresh(kind, key) { return Date.now() - (this.tried[`${kind}:${key}`] ?? 0) < FRESH; }
   put(kind, key, data) { this.cache[kind][key] = { at: Date.now(), data }; this.dirty = true; }
@@ -182,22 +190,24 @@ export default class Issues extends View {
     if (key !== s.listKey) {
       s.listKey = key; s.error = null;
       const c = this.cached("lists", key); s.list = c?.data ?? []; s.listAt = c?.at ?? null;
-      s.loading = this.inflight.has(`lists:${key}`);
+      s.loading = this.busy(`lists:${key}`);
     }
-    if (this.inflight.has(`lists:${key}`) || (!force && this.isFresh("lists", key))) return;
-    this.inflight.add(`lists:${key}`); this.tried[`lists:${key}`] = Date.now(); s.loading = true;
+    if (this.busy(`lists:${key}`) || (!force && this.isFresh("lists", key))) return;
+    this.inflight.set(`lists:${key}`, Date.now()); this.tried[`lists:${key}`] = Date.now(); s.loading = true;
     cx.spawn(async (cx) => {
       const args = ["issue", "list", "-R", repo, "--state", s.state, "--limit", String(this.limits.get(key) ?? PAGE),
         "--json", "number,title,state,labels,assignees,updatedAt,author"];
       if (s.mine) args.push("--assignee", "@me");
       if (s.query) args.push("--search", s.query);
-      const r = await accounts.run(args).catch(fail);
+      let r = await accounts.run(args, { timeout: GH_TIMEOUT }).catch(fail), data = null;
       this.inflight.delete(`lists:${key}`);
-      if (r.code === 0) this.put("lists", key, JSON.parse(r.stdout || "[]"));
-      if (key === s.listKey) {
-        s.loading = false;
-        if (r.code === 0) { s.list = this.cache.lists[key].data; s.listAt = this.cache.lists[key].at; s.error = null; }
-        else s.error = (r.stderr || r.stdout).trim().slice(0, 300);
+      if (r.code === 0) { try { data = JSON.parse(r.stdout || "[]"); this.put("lists", key, data); } catch (e) { r = fail(`bad gh output: ${e}`); } }
+      // Every space showing this list takes the result (spaces of one repo, e.g. a worktree, share the key).
+      for (const w of [...Object.values(this.ws), s]) {
+        if (w.listKey !== key) continue;
+        w.loading = false;
+        if (data) { w.list = data; w.listAt = this.cache.lists[key].at; w.error = null; }
+        else w.error = (r.stderr || r.stdout).trim().slice(0, 300);
       }
       cx.notify();
     });
@@ -215,13 +225,13 @@ export default class Issues extends View {
   // Fetches one issue into the cache (shared by show and the hover prefetch).
   fetchIssue(repo, n, cx, force) {
     const key = keyOf(repo, n), id = `issues:${key}`;
-    if (this.inflight.has(id) || (!force && this.isFresh("issues", key))) return;
-    this.inflight.add(id); this.tried[id] = Date.now();
+    if (this.busy(id) || (!force && this.isFresh("issues", key))) return;
+    this.inflight.set(id, Date.now()); this.tried[id] = Date.now();
     cx.spawn(async (cx) => {
-      const r = await accounts.run(["issue", "view", String(n), "-R", repo, "--json",
-        "number,title,body,state,author,labels,assignees,comments,url,createdAt"]).catch(fail);
+      let r = await accounts.run(["issue", "view", String(n), "-R", repo, "--json",
+        "number,title,body,state,author,labels,assignees,comments,url,createdAt"], { timeout: GH_TIMEOUT }).catch(fail);
       this.inflight.delete(id);
-      if (r.code === 0) this.put("issues", key, JSON.parse(r.stdout));
+      if (r.code === 0) { try { this.put("issues", key, JSON.parse(r.stdout)); } catch (e) { r = fail(`bad gh output: ${e}`); } }
       // Every space showing this issue takes the new copy.
       for (const s of Object.values(this.ws)) {
         if (s.open?.repo !== repo || s.open?.number !== n) continue;
@@ -337,7 +347,7 @@ export default class Issues extends View {
     const repoBox = h_flex().min_w(0).h(24).px(8).items_center().rounded(6).border_1().border_color(t.border).bg(t.raised)
       .tooltip(`The GitHub repo of this space's folder: ${this.folder() ?? "none"}`)
       .child(div().min_w(0).truncate().text_size(12).child(repo ?? "No repo"));
-    const busy = s.open ? this.inflight.has(`issues:${keyOf(s.open.repo, s.open.number)}`) : s.loading;
+    const busy = s.open ? this.busy(`issues:${keyOf(s.open.repo, s.open.number)}`) : s.loading;
     const header = h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
       .child(div().flex_none().font_semibold().child("Issues"))
       .when(!s.open && s.list.length > 0, (e) => e.child(ui.pill(`${s.list.length}${s.list.length >= 100 ? "+" : ""}`)))
@@ -402,8 +412,8 @@ export default class Issues extends View {
     const bar = ui.subbar()
       .child(backButton("back", "Issues", (_e, cx) => this.back(cx)))
       .child(div().flex_1().min_w(0).truncate().text_color(t.dim).child(`#${n}`))
-      .when(this.inflight.has(`issues:${k}`), (e) => e.child(icon("spinner", 12).text_color(t.dim).spin(900)))
-      .when(Boolean(s.detailAt) && !this.inflight.has(`issues:${k}`), (e) => e.child(div().px(4).text_color(t.dim).child(since(s.detailAt))))
+      .when(this.busy(`issues:${k}`), (e) => e.child(icon("spinner", 12).text_color(t.dim).spin(900)))
+      .when(Boolean(s.detailAt) && !this.busy(`issues:${k}`), (e) => e.child(div().px(4).text_color(t.dim).child(since(s.detailAt))))
       .when(Boolean(d), (e) => e
         .when((d?.comments ?? []).length > 0, (x) => x.child(textButton("fold-all", allFolded ? "Expand comments" : "Collapse comments", (_e, cx) => {
           if (allFolded) s.collapsed.clear(); else for (const [i, c] of d.comments.entries()) s.collapsed.add(c.id ?? `c-${i}`);
@@ -437,7 +447,7 @@ export default class Issues extends View {
       .when(Boolean(run && !run.error), (e) => e.child(div().flex_none().text_size(11).text_color(t.dim).child("Summarizing… (may take a few tens of seconds)")))
       .when(Boolean(run?.error), (e) => e.child(div().flex_none().text_size(11).text_color(t.ansi1).whitespace_normal().child(`Summary failed: ${run.error}`)))
       .when(Boolean(sum), (e) => e.child(card(`summary-${sum.at}`,
-        `Summary · ${since(sum.at)}${!this.inflight.has(`issues:${k}`) && sum.version !== versionOf(d) ? " · ⚠ OUTDATED (issue changed since)" : ""}`, sum.text, true)))
+        `Summary · ${since(sum.at)}${!this.busy(`issues:${k}`) && sum.version !== versionOf(d) ? " · ⚠ OUTDATED (issue changed since)" : ""}`, sum.text, true)))
       .child(card("body", `${d.author?.login ?? ""} · description`, d.body))
       .children((d.comments ?? []).map((c, i) => {
         const cid = c.id ?? `c-${i}`, preview = (c.body ?? "").replace(/\s+/g, " ").trim().slice(0, 80), folded = s.collapsed.has(cid);

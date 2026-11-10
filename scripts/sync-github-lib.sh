@@ -34,4 +34,7 @@ sync lib/pr-status.js mods/pr-flow/status.js mods/inbox/status.js
 sync lib/panel-ui.js mods/file-icons/panel-ui.js mods/reviewer/panel-ui.js mods/issues/panel-ui.js mods/git-graph/panel-ui.js mods/pr-flow/panel-ui.js mods/mermaid-board/panel-ui.js
 # Markdown with mermaid diagrams and its zoomable viewer: Issues, Files and the Mermaid board.
 sync lib/markdown.js mods/issues/markdown.js mods/file-icons/markdown.js mods/mermaid-board/markdown.js
+# Code block colors for that markdown: highlight.js (vendored, lib/vendor/) and the span mapping.
+sync lib/code-highlight.js mods/issues/code-highlight.js mods/file-icons/code-highlight.js mods/mermaid-board/code-highlight.js
+sync lib/vendor/highlight.min.js mods/issues/hljs.js mods/file-icons/hljs.js mods/mermaid-board/hljs.js
 sync lib/diagram-viewer.js mods/issues/diagram-viewer.js mods/file-icons/diagram-viewer.js mods/mermaid-board/diagram-viewer.js

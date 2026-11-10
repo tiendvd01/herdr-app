@@ -39,7 +39,7 @@ The window is `layouts/tiendvd-layout.json`, a tree of `row`/`column`/`stack`/`b
 
 - `render()` must not call `cx.notify()`; spawn the work (`cx.spawn`) and notify when it finishes. Never keep a `cx` for later use. No `setTimeout`/`setInterval`: use `cx.timer`. Animate natively (`.frames`, `.spin`, `.loop`), never with a timer.
 - `issues` keeps per-space state (repo, filters, search, open issue) in `localStorage` key `spaces`, and fetches through the `gh` CLI. New spaces default to state Open and Mine (`fresh()` in `mods/issues/main.js`). `mods/issues/.diagrams/` is a gitignored render cache.
-- `reviewer` is split into `main.js`, `dialog.js`, `highlight.js`, `ask.js`, `palette.js`; `issues` and `file-icons` share `lib/markdown.js` (markdown + mermaid diagrams drawn by `mmdc`) and `lib/diagram-viewer.js` (zoomable dialog overlay of the same mod), synced by `scripts/sync-github-lib.sh`.
+- `reviewer` is split into `main.js`, `dialog.js`, `highlight.js`, `ask.js`, `palette.js`; `issues` and `file-icons` share `lib/markdown.js` (markdown + mermaid diagrams drawn by `mmdc` + fenced code colored by highlight.js via `lib/code-highlight.js` and `lib/vendor/highlight.min.js`) and `lib/diagram-viewer.js` (zoomable dialog overlay of the same mod), synced by `scripts/sync-github-lib.sh`.
 
 ## Mod docs
 
