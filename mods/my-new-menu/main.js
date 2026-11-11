@@ -60,7 +60,8 @@ export default class NewMenu extends View {
           () => run("tab.new", { name: a.name, space: space?.id, folder: spaceFolder(space) ?? undefined, argv: a.run }), a.installed ? (i < 9 ? String(i + 1) : "") : "not installed", a.installed)))
         .when(this.agents.length === 0, el => el.child(div().px(9).py(6).text_color(t.dim).child(this.failed ? "Could not load agents" : "Checking installed agents…"))))
       .child(div().h(1).mx(4).my(5).bg(t.border))
-      .child(this.row("vscode", svg("mods/open-vscode/vscode.svg").size(14), "Open in VS Code", () => run("mod.open", { name: "open-vscode" }), shortcut("mod.open:open-vscode"), Boolean(space)))
+      .child(this.row("vscode", svg("mods/open-vscode/vscode.svg").size(14), "Open in VS Code", () => run("mod.open", { name: "open-vscode" }), "", Boolean(space)))
+      .child(this.row("zed", svg("mods/open-zed/zed.svg").size(14), "Open in Zed", () => run("mod.open", { name: "open-zed" }), shortcut("mod.open:open-zed"), Boolean(space)))
       .child(this.row("space", div().w(14).child("+"), "New space", () => run("space.new"), shortcut("space.new")))
       .child(this.row("worktree", svg("mods/workspace-chrome/branch.svg").size(14), "New worktree…", () => openOverlay({ mod: "my-worktree", kind: "dialog", width: 640, height: 560, props: { space: space?.id, folder: spaceFolder(space) ?? undefined, action: "new" } }), "", Boolean(space)))
       .child(this.row("worktree-open", svg("mods/workspace-chrome/branch.svg").size(14), "Open worktree\u2026", () => openOverlay({ mod: "my-worktree", kind: "dialog", width: 560, height: 480, props: { space: space?.id, folder: spaceFolder(space) ?? undefined, action: "open" } }), "", Boolean(space)));
