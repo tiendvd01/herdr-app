@@ -22,7 +22,9 @@ Mở bằng cách bấm badge `N proc · CPU% · RAM` ở thanh trạng thái d�
 - **CPU "Running"** không dựa vào `%cpu` của `ps` (trên macOS đó là trung bình suy giảm nên cao mãi sau khi việc dừng). Mod so sánh thời gian CPU tích lũy giữa hai lần poll; ≥ 10% thì coi là đang chạy.
 - **Pause/Resume** gửi `kill -STOP` / `-CONT` tới cả nhóm pid con.
 - **Stop all** gửi `-TERM` tới mọi tiến trình con (không đụng tới Claude). Các pid này được ghi vào shared `procs.killed` để không bị báo "Process finished".
-- **Delete** là `terminal.kill`: đóng luôn terminal và pane.
+- **Delete** là `terminal.kill`: đóng luôn terminal và pane. Dòng bị ẩn ngay và poll lại liền; bấm lại không gọi kill lần nữa (trước đây báo lỗi "terminal đã bị kill").
+- Danh sách chỉ hiện phiên có terminal còn tồn tại (`terminals()`), nên dù dữ liệu `procs` cũ cũng không hiện phiên đã đóng.
+- `status-usage` cho phép poll mới nếu lần poll trước treo quá 20 giây (`ps` có timeout 10 giây). Trước đây một lần `exec` không trả về làm kẹt cờ bận và danh sách đứng yên vĩnh viễn.
 - **Restart** chạy một job shell tách rời (`nohup`), nên đóng hộp thoại không làm đứt giữa chừng:
   1. gửi `/exit`, đợi Claude thoát (tối đa ~20 giây);
   2. đọc màn hình terminal, lấy id từ dòng `claude --resume <uuid>`, gửi lại lệnh đó (không có id thì `claude --continue`);

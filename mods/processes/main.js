@@ -1,6 +1,6 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { theme, shared, setShared, run, exec, hc, notify, closeOverlay, props } from "herdr";
+import { theme, shared, setShared, run, exec, hc, notify, closeOverlay, props, terminals } from "herdr";
 
 const age = (s) => {
   if (s >= 3600) return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
@@ -16,6 +16,7 @@ export default class Processes extends View {
     this.fh.focus();
     this.expanded = new Set();
     this.restarting = new Set();
+    this.removed = new Set();
   }
 
   // /exit, wait until Claude is gone, resume the same conversation in that terminal, then /compact it.
@@ -82,8 +83,13 @@ hc send --force "$addr" /compact
   }
 
   // Delete the session: kill its terminal (closes the pane).
-  remove(se) {
-    run("terminal.kill", { terminal: se.address });
+  // Hide it right away and poll again: the list comes from status-usage every 4s.
+  remove(se, cx) {
+    if (this.removed.has(se.address)) return;
+    this.removed.add(se.address);
+    if (terminals().some((x) => x.address === se.address)) run("terminal.kill", { terminal: se.address });
+    setShared("procs.refresh", Date.now());
+    cx.notify();
   }
 
   stopAll(se) {
@@ -129,7 +135,7 @@ hc send --force "$addr" /compact
           { dim: this.restarting.has(se.address), spin: this.restarting.has(se.address) }))
         .child(this.iconBtn(t, `go-${se.address}`, "arrow-up-right", () => this.goto(se)))
         .when(tasks.length > 0, (el) => el.child(this.iconBtn(t, `stop-${se.address}`, "square", () => this.stopAll(se), { danger: true })))
-        .child(this.iconBtn(t, `del-${se.address}`, "trash", () => this.remove(se), { danger: true })))
+        .child(this.iconBtn(t, `del-${se.address}`, "trash", (_e, cx) => this.remove(se, cx), { danger: true })))
       .when(open && items.length === 0, (el) => el.child(div().px(10).text_size(12).text_color(t.dim).child("No running processes")))
       .children(items.map((it) => this.row(t, se, it)));
   }
@@ -137,7 +143,9 @@ hc send --force "$addr" /compact
   render() {
     const t = theme();
     const d = shared("procs");
-    const sessions = d?.sessions ?? [];
+    // Only sessions whose terminal still exists, so a stale snapshot never shows a closed one.
+    const live = new Set(terminals().map((x) => x.address));
+    const sessions = (d?.sessions ?? []).filter((s) => live.has(s.address) && !this.removed.has(s.address));
     const tasks = sessions.flatMap((s) => s.items);
     const all = sessions.flatMap((s) => s.items);
     const cpu = all.reduce((a, i) => a + i.cpu, 0);

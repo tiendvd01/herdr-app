@@ -67,17 +67,19 @@ export default class WorkspaceStatus extends View {
     });
   }
 
+  // pbusy holds the start time of the poll in flight. A poll whose exec never settles
+  // used to leave pbusy stuck and froze the Sessions list; after 20s a new poll may start.
   pollProcs(cx) {
-    if (this.pbusy) return;
-    this.pbusy = true;
+    if (this.pbusy && Date.now() - this.pbusy < 20000) return;
+    const mine = this.pbusy = Date.now();
     cx.spawn(async (cx) => {
       try {
         const d = await collect(exec);
-        setShared("procs", d);
+        if (this.pbusy === mine) setShared("procs", d);
       } catch (e) {
         console.log("procs failed", String(e?.message ?? e));
       }
-      this.pbusy = false;
+      if (this.pbusy === mine) this.pbusy = 0;
     });
   }
 

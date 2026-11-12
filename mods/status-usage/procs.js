@@ -31,7 +31,7 @@ export function pretty(cmd) {
 }
 
 export async function collect(exec) {
-  const r = await exec("/bin/ps", ["-axo", "pid=,ppid=,pcpu=,rss=,etime=,stat=,time=,command="]);
+  const r = await exec("/bin/ps", ["-axo", "pid=,ppid=,pcpu=,rss=,etime=,stat=,time=,command="], { timeout: 10000 });
   const procs = new Map();
   const kids = new Map();
   for (const line of r.stdout.split("\n")) {

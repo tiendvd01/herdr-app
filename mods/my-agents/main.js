@@ -78,14 +78,54 @@ export default class Agents extends View {
     cx.timer.every(30000, (cx) => cx.notify());
     this.first = {};
     this.file = {};
+    // Each space folder's repository: { repo, linked } (linked: a worktree), null: not git.
+    this.git = {};
     cx.timer.every(5000, (cx) => this.scan(cx));
     this.scan(cx);
+  }
+
+  // Where a space's checkout is: its first terminal's folder, else the space's.
+  spaceKey(s, ps) {
+    const ids = new Set(s.tabs.map((tab) => tab.id));
+    const cwd = ps.find((p) => ids.has(p.tab) && p.cwd)?.cwd || s.folder;
+    return cwd ? JSON.stringify([s.machine ?? null, cwd]) : null;
+  }
+
+  // Reads the repository of space folders not read yet; a folder's repo doesn't change.
+  async readRepos() {
+    const ps = panes();
+    let changed = false;
+    for (const s of spaces()) {
+      const key = this.spaceKey(s, ps);
+      if (!key || key in this.git) continue;
+      const [on, cwd] = JSON.parse(key);
+      try {
+        const r = await exec("git", ["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir"], { cwd, on: on ?? undefined });
+        const [top, common] = r.stdout.trim().split("\n");
+        this.git[key] = r.code === 0 && common ? { repo: `${on}\u0000${common}`, linked: common !== `${top}/.git` } : null;
+        changed = true;
+      } catch (e) { /* ask again next scan */ }
+    }
+    return changed;
+  }
+
+  // Space id -> the main checkout's space id, for worktree spaces whose repo is open as a space too.
+  worktreeParents() {
+    const ps = panes();
+    const info = spaces().map((s) => ({ s, g: this.git[this.spaceKey(s, ps)] }));
+    const out = new Map();
+    for (const { s, g } of info) {
+      if (!g?.linked) continue;
+      const main = info.find((r) => r.g && !r.g.linked && r.g.repo === g.repo);
+      if (main) out.set(s.id, main.s);
+    }
+    return out;
   }
 
   // The first message of each Claude thread, read from its transcript.
   scan(cx) {
     cx.spawn(async (cx) => {
-      let changed = false;
+      let changed = await this.readRepos();
       for (const a of agents().filter((x) => x.app === "claude-code")) {
         const pid = terminals().find((t) => t.address === a.address)?.foreground?.pid;
         if (!pid) continue;
@@ -398,15 +438,35 @@ export default class Agents extends View {
       else groups.push({ id, label: byPriority ? SECTION[r] : a.space_name || "", status: byPriority ? SECTION_STATUS[r] : null, members: [a] });
     }
 
+    // Grouped: a worktree space's group goes under its main checkout's space, which
+    // gets an empty header of its own when none of its agents is listed.
+    if (!byPriority) {
+      const parents = this.worktreeParents();
+      const spaceGroups = groups.filter((g) => g.id.startsWith("sp-"));
+      const mainOf = (g) => parents.get(g.id.slice(3));
+      const ordered = groups.filter((g) => !g.id.startsWith("sp-"));
+      const placed = new Set();
+      for (const g of spaceGroups) {
+        const main = mainOf(g);
+        const top = main ? spaceGroups.find((m) => m.id === `sp-${main.id}`) ?? { id: `sp-${main.id}`, label: main.name, status: null, members: [] } : g;
+        if (placed.has(top.id)) continue;
+        placed.add(top.id);
+        top.kids = spaceGroups.filter((k) => mainOf(k)?.id === top.id.slice(3));
+        ordered.push(top);
+      }
+      groups.splice(0, groups.length, ...ordered);
+    }
+
     // A group's header; it folds the group. Folded, it says how many and the most urgent state.
-    const header = (g) => {
+    const header = (g, nested = false) => {
       const open = !this.folded.has(g.id);
-      const top = g.members.reduce((m, a) => ((RANK[a.status] ?? 0) > (RANK[m] ?? 0) ? a.status : m), null);
+      const members = [...g.members, ...(g.kids ?? []).flatMap((k) => k.members)];
+      const top = members.reduce((m, a) => ((RANK[a.status] ?? 0) > (RANK[m] ?? 0) ? a.status : m), null);
       return h_flex()
         .id(g.id)
         .px(8)
-        .pt(8)
-        .h(30)
+        .pt(nested ? 4 : 8)
+        .h(nested ? 26 : 30)
         .flex_none()
         .gap(6)
         .items_center()
@@ -418,8 +478,9 @@ export default class Agents extends View {
           open ? this.folded.add(g.id) : this.folded.delete(g.id);
           cx.notify();
         })
+        .when(nested, (el) => el.child(svg("mods/workspace-chrome/git-branch.svg").size(11).flex_none().text_color(t.dim)))
         .child(div().truncate().text_color(t[g.status] ?? t.dim).child(g.label))
-        .when(byPriority || !open, (el) => el.child(div().text_color(t.dim).child(String(g.members.length))))
+        .when(byPriority || !open, (el) => el.child(div().text_color(t.dim).child(String(members.length))))
         .child(div().flex_1())
         .when(!open, (el) => el
           .when(!byPriority && top && top !== "idle", (el) => el.child(this.status(t, { status: top }, true)))
@@ -427,7 +488,18 @@ export default class Agents extends View {
     };
     const rows = collapsed
       ? list.flatMap(withKids)
-      : groups.flatMap((g) => [header(g), ...(this.folded.has(g.id) ? [] : g.members.flatMap(withKids))]);
+      : groups.flatMap((g) => {
+          if (this.folded.has(g.id)) return [header(g)];
+          // Worktree groups hang off a guide line under the main checkout's rows.
+          const kids = (g.kids ?? []).map((k) => v_flex()
+            .ml(14)
+            .pl(4)
+            .border_l(1.5)
+            .border_color(t.input)
+            .child(header(k, true))
+            .children(this.folded.has(k.id) ? [] : k.members.flatMap(withKids)));
+          return [header(g), ...g.members.flatMap(withKids), ...kids];
+        });
 
     return v_flex()
       .size_full()
