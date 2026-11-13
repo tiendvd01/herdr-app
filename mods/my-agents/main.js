@@ -53,6 +53,16 @@ const SORTS = [
 const sortOf = () => SORTS.find((s) => s.id === shared("agents.sort")) ?? SORTS[0];
 const SECTION = { 4: "Needs you", 3: "Done", 2: "Working", 1: "Idle" };
 const SECTION_STATUS = { 4: "blocked", 3: "done", 2: "working" };
+// Worktree nesting: the step rows move right, the guide line's x (under the
+// space name's first letter), and a worktree header's height.
+const INDENT = 14;
+const RAIL = 10;
+const NESTED_H = 28;
+// The line's weight, where it bends (a worktree header's middle, from its top),
+// and how far it reaches toward the branch icon.
+const LINE = 1;
+const BEND = 16;
+const STUB = INDENT + 8 - RAIL - 4;
 
 function duration(ms) {
   const m = Math.floor(ms / 60000);
@@ -465,8 +475,12 @@ export default class Agents extends View {
       return h_flex()
         .id(g.id)
         .px(8)
+        // A worktree, its branch icon in the same column as the agent icons. The
+        // last one's bend is the line's own end; others get a branch off it.
+        .when(Boolean(nested), (el) => el.relative().pl(INDENT + 8)
+          .when(nested === "mid", (el) => el.child(div().absolute().left(RAIL).top(BEND - LINE).w(STUB).h(LINE).bg(t.dim))))
         .pt(nested ? 4 : 8)
-        .h(nested ? 26 : 30)
+        .h(nested ? NESTED_H : 30)
         .flex_none()
         .gap(6)
         .items_center()
@@ -490,15 +504,23 @@ export default class Agents extends View {
       ? list.flatMap(withKids)
       : groups.flatMap((g) => {
           if (this.folded.has(g.id)) return [header(g)];
-          // Worktree groups hang off a guide line under the main checkout's rows.
-          const kids = (g.kids ?? []).map((k) => v_flex()
-            .ml(14)
-            .pl(4)
-            .border_l(1.5)
-            .border_color(t.input)
-            .child(header(k, true))
-            .children(this.folded.has(k.id) ? [] : k.members.flatMap(withKids)));
-          return [header(g), ...g.members.flatMap(withKids), ...kids];
+          const kids = g.kids ?? [];
+          const own = g.members.flatMap(withKids);
+          if (!kids.length) return [header(g), ...own];
+          // Worktree groups hang off a guide line that leaves the space's name and
+          // curves into each worktree's name; it ends at the last one.
+          // Everything under such a space moves one step right, so the line runs
+          // beside the rows' highlight rather than through it.
+          const indent = (rows) => v_flex().pl(INDENT).children(rows);
+          const kidRows = (k) => this.folded.has(k.id) ? [] : [indent(k.members.flatMap(withKids))];
+          const last = kids.at(-1);
+          const rail = v_flex()
+            .relative()
+            // One element from under the name down to the last worktree, bending into it.
+            .child(div().absolute().left(RAIL).top(-3).bottom(NESTED_H - BEND).w(STUB).border_l(LINE).border_b(LINE).rounded_bl(6).border_color(t.dim))
+            .child(indent(own))
+            .children(kids.flatMap((k) => [header(k, k === last ? "last" : "mid"), ...(k === last ? [] : kidRows(k))]));
+          return [header(g), rail, ...kidRows(last)];
         });
 
     return v_flex()
