@@ -1,11 +1,13 @@
 <!--
 Sync Impact Report (temporary review scratch; remove before commit)
-- Version change: (unfilled template) → 1.0.0
-- Modified principles: none renamed; all five principle slots filled for the first time
-- Added sections: Core Principles I–VI, Operational Constraints, Development Workflow, Governance
+- Version change: 1.0.0 → 2.0.0 (MAJOR: principle VI redefined)
+- Modified principles: VI "Documentation Tracks Behaviour" → "Intent Lives in CLAUDE.md and Specs"
+  (the `docs/` folder was removed on purpose in commit 403dc1a; no per-mod docs any more)
+- Added sections: none
 - Removed sections: none
-- Deferred TODOs: none. RATIFICATION_DATE set to the date of this first adoption (2026-11-13).
-- Sources: CLAUDE.md, scripts/sync-github-lib.sh, docs/*.md, .gitignore
+- Governance: "update any affected docs/ file" → "update CLAUDE.md"
+- Templates/files checked: CLAUDE.md (docs/ pointers removed) ✅; specs/012-space-skillsets (FR-011, plan, tasks) ✅
+- Deferred TODOs: none
 -->
 # Herdr App Home Constitution
 
@@ -53,12 +55,13 @@ arrow + label for Back, text chips for filters, text buttons for actions. Panels
 focused terminal's folder via `lib/space-folder.js`; no pinned per-space folder.
 Rationale: one look and one folder rule across panels keeps behaviour predictable.
 
-### VI. Documentation Tracks Behaviour
-Per-mod behaviour notes live in `docs/mods/` (outside `mods/`, because saving any file under a mod
-folder hot-reloads it). A change to a mod's behaviour MUST update the matching `docs/mods/<mod>.md`;
-cross-cutting rules live in `docs/` (`space-folder.md`, `gh-account.md`, `panel-ui.md`). Never leave a
-doc describing removed behaviour.
-Rationale: the docs are the only record of intent, since the repo has no tests.
+### VI. Intent Lives in CLAUDE.md and Specs
+There is no `docs/` folder. A change to a mod's behaviour that a future reader needs to know MUST be
+reflected in `CLAUDE.md` (a short note: what, where, which files) and, for a feature built with
+spec-kit, in its `specs/<nnn>-<feature>/` folder. Notes MUST NOT be written under `mods/` (saving any
+file there hot-reloads the mod). Never leave a note describing removed behaviour.
+Rationale: the repo has no tests, so CLAUDE.md and the specs are the record of intent; one place is
+kept current instead of a parallel docs tree that drifted.
 
 ## Operational Constraints
 
@@ -85,10 +88,10 @@ Rationale: the docs are the only record of intent, since the repo has no tests.
 ## Governance
 
 This constitution supersedes ad-hoc practice in this repository. Amendments are made by editing this
-file with a rationale and a version bump, and MUST update any affected `docs/` file in the same
-change. Versioning follows semantic versioning: MAJOR for removed or redefined principles, MINOR for a
+file with a rationale and a version bump, and MUST update `CLAUDE.md` in the same change when it is
+affected. Versioning follows semantic versioning: MAJOR for removed or redefined principles, MINOR for a
 new principle or materially expanded guidance, PATCH for clarifications. Compliance is checked
 whenever a mod, layout or shared `lib/` file changes: the reviewer verifies the principles above,
 especially I, II and IV. Runtime guidance lives in `CLAUDE.md` and `AGENTS.md`.
 
-**Version**: 1.0.0 | **Ratified**: 2026-11-13 | **Last Amended**: 2026-11-13
+**Version**: 2.0.0 | **Ratified**: 2026-11-13 | **Last Amended**: 2026-11-16

@@ -3,5 +3,10 @@
   "cloned_from": {
     "name": "new-menu",
     "version": "0.1.11"
+  },
+  "overlay": {
+    "kind": "popup",
+    "width": 250,
+    "height": 543
   }
 }

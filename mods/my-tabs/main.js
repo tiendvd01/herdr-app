@@ -1,6 +1,6 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { spaces, panes, focused, exec, run, openOverlay, theme, window, shared, layout, settings } from "herdr";
+import { spaces, panes, focused, exec, run, openOverlay, nextCommand, theme, window, shared, layout, settings } from "herdr";
 import { activePlace } from "./space-folder.js";
 
 // Same place the Changes panel reads: the focused pane's folder, on its machine.
@@ -26,6 +26,22 @@ export default class Tabs extends View {
     cx.timer.every(3000, (cx) => this.refreshDiff(cx));
     this.refreshDiff(cx);
     this.panels = JSON.parse(localStorage.getItem("panels") ?? "{}");
+    // keys.json "my-tabs.new-menu" (cmd-n): open the new-tab menu under the + button.
+    cx.spawn(async () => {
+      for (;;) { if (await nextCommand() === "new-menu") this.openNewMenu(); }
+    });
+  }
+
+  // The popup under the + button, its right edge on the button's. The tab bar ends at the
+  // window's right edge, so the button sits left of the measured trailing buttons.
+  openNewMenu() {
+    // my-new-menu's rows: padding 10, Terminal + btop 62, label 28, divider 11, five actions 155,
+    // plus 31 per agent (it shares the count once it has looked agents up).
+    const rows = Number(shared("new-menu.rows")) || 8;
+    const width = 250, height = Math.min(266 + rows * 31, 640);
+    const plusRight = (this.viewW ?? 0) - 10 - (this.trailW ?? 0) - 3;
+    const at = this.viewW ? { x: Math.max(8, plusRight - width), y: (this.barH ?? 37) + 2 } : undefined;
+    openOverlay({ mod: "my-new-menu", kind: "popup", width, height, at });
   }
 
   // Lines added/removed against HEAD, shown on the Changes button.
@@ -81,6 +97,7 @@ export default class Tabs extends View {
 
   render(cx) {
     const t = theme();
+    this.viewW = globalThis.window?.viewport_size?.().width;
     const space = spaces().find(p => p.active);
     const shown = space?.tabs ?? [];
     const stop = (_e, cx) => cx.stop_propagation();
@@ -140,10 +157,12 @@ export default class Tabs extends View {
       .on_click(() => run("mod.open", { name: "reviewer" })).tooltip("Changes  ⌘⇧G")
       .child(svg("mods/changes/changes.svg").size(14)).when(Boolean(counts), el => el.child(counts));
     return h_flex().size_full().min_w(0).px(10).pl(lightsPadding).gap(3).items_center().bg(t.chrome).border_b(1).border_color(t.border)
+      .id("tab-bar").on_size_change(size => { this.barH = size.height; })
       .on_mouse_up("left", () => { this.pressed = null; })
       .on_scroll_wheel(e => { if (Math.abs(e.delta.y) >= 1) run(e.delta.y > 0 ? "tab.prev" : "tab.next"); })
       .child(h_flex().id("tab-scroll").flex_1().min_w(0).h_full().items_center().gap(3).overflow_x_scrollbar().children(shown.map(item)))
-      .child(button("tab-new", "+", () => openOverlay({ mod: "my-new-menu", kind: "popup", width: 250, height: 543 })))
+      .child(button("tab-new", "+", () => this.openNewMenu()))
+      .child(h_flex().id("tab-trailing").flex_none().gap(3).items_center().on_size_change(size => { this.trailW = size.width; })
       .when(enabled.includes("files"), el => el.child(panelButton("files", "Files", "mods/files/file.svg", null, "browse the space's folder")))
       .when(enabled.includes("changes"), el => el.child(changesButton))
       .child(panelButton("issues", "Issues", "mods/issues/issue.svg", null, "GitHub issues of this repo"))
@@ -151,6 +170,6 @@ export default class Tabs extends View {
       .child(panelButton("prs", "Pull requests", "mods/my-tabs/pull-request.svg", null, "open pull requests of your agents' branches"))
       .when(w?.buttons, el => el.child(button("minimize", w.platform === "windows" ? svg("mods/my-tabs/win-min.svg").size(16) : "−", () => run("window.minimize")))
         .child(button("maximize", w.platform === "windows" ? svg(`mods/my-tabs/${w.maximized ? "win-restore" : "win-max"}.svg`).size(16) : "□", () => run("window.maximize")))
-        .child(button("close-window", w.platform === "windows" ? svg("mods/my-tabs/win-close.svg").size(16) : svg("mods/pane/close.svg").size(13), () => run("window.close"))));
+        .child(button("close-window", w.platform === "windows" ? svg("mods/my-tabs/win-close.svg").size(16) : svg("mods/pane/close.svg").size(13), () => run("window.close")))));
   }
 }

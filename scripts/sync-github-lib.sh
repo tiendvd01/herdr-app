@@ -38,3 +38,5 @@ sync lib/markdown.js mods/issues/markdown.js mods/file-icons/markdown.js mods/me
 sync lib/code-highlight.js mods/issues/code-highlight.js mods/file-icons/code-highlight.js mods/mermaid-board/code-highlight.js
 sync lib/vendor/highlight.min.js mods/issues/hljs.js mods/file-icons/hljs.js mods/mermaid-board/hljs.js
 sync lib/diagram-viewer.js mods/issues/diagram-viewer.js mods/file-icons/diagram-viewer.js mods/mermaid-board/diagram-viewer.js
+# Per-project Claude skills (library scan, skills.json, generated --plugin-dir bundle): Project Settings and the + menu.
+sync lib/project-skills.js mods/project-settings/project-skills.js mods/my-new-menu/project-skills.js

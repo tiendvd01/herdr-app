@@ -2,8 +2,9 @@
 // script ~/.config/herdr-app/projects/<repo>/post-create.sh, run in every new worktree of the repo
 // (the watcher lives in status-usage/postscripts.js).
 import { View, div, svg } from "gpui-kit";
-import { v_flex, h_flex, EditorState, Editor } from "gpui-base";
-import { theme, spaces, exec, readTextFile, writeTextFile, home, settings, run, terminals, panes } from "herdr";
+import { v_flex, h_flex, EditorState, Editor, InputState, Input } from "gpui-base";
+import { theme, spaces, exec, readTextFile, writeTextFile, home, settings, run, terminals, panes, shared } from "herdr";
+import { projectOf, scanLibrary, readSelection, writeSelection, syncBundle, pruneLegacy, estimate, skillsDir } from "./project-skills.js";
 
 const TEMPLATE = `#!/bin/sh
 # Runs once in each new worktree of this project (cwd = the worktree).
@@ -23,15 +24,11 @@ const DEFAULT_SUMMARY_PROMPT = [
   "Chỉ trả về bản tóm tắt, không lời dẫn.",
 ].join("\n");
 
-const slug = (main) => main.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^_+|_+$/g, "");
-const scriptFile = (home, main) => `${home}/.config/herdr-app/projects/${slug(main)}/post-create.sh`;
-
+// The project key (projects/<slug>/) comes from lib/project-skills.js, shared with the + menu.
 async function repoOf(folder) {
-  const r = await exec("git", ["rev-parse", "--path-format=absolute", "--git-common-dir"], { cwd: folder });
-  if (r.code !== 0) return null;
-  const common = r.stdout.trim();
-  const main = common.endsWith("/.git") ? common.slice(0, -5) : common;
-  return { main, name: main.split("/").pop(), file: scriptFile(home(), main), promptFile: `${home()}/.config/herdr-app/projects/${slug(main)}/summary-prompt.md`, legacy: `${main}/.herdr/post-create.sh` };
+  const p = await projectOf(folder);
+  if (!p) return null;
+  return { ...p, file: `${p.dir}/post-create.sh`, promptFile: `${p.dir}/summary-prompt.md`, legacy: `${p.main}/.herdr/post-create.sh` };
 }
 
 // Listening TCP ports per worktree of a repo: lsof lists the listeners, the listener's cwd picks the worktree.
@@ -112,6 +109,15 @@ export default class ProjectSettings extends View {
     this.pMsg = "";
     this.tab = "ports";
     this.trees = [];
+    // Skills tab: library, this project's selection (skills.json) and its raw text for safe writes.
+    this.lib = null;
+    this.sk = { skills: [], mcp: [] };
+    this.skRaw = null;
+    this.skMsg = "";
+    this.skBusy = false;
+    this.search = InputState.new({ placeholder: "Search skills and MCP servers…" });
+    this.search.on("change", (_e, cx) => cx.notify());
+    this.openReq = null; // last "open the Skills tab" request seen (shared "project-settings.tab")
     this.scan(cx);
     cx.timer.every(5000, (cx) => this.scan(cx));
     cx.timer.every(3000, (cx) => this.refreshPorts(cx));
@@ -197,6 +203,122 @@ export default class ProjectSettings extends View {
     this.pSaved = await readTextFile(r.promptFile).catch(() => null);
     this.pEditor.set_value(this.pSaved?.trim() ? this.pSaved : DEFAULT_SUMMARY_PROMPT);
     this.pMsg = "";
+    await this.loadSkills(r);
+  }
+
+  async loadSkills(r) {
+    const [lib, sel] = await Promise.all([scanLibrary().catch(() => ({ skills: [], mcp: [], global: [] })), readSelection(r)]);
+    if (this.sel !== r) return;
+    this.lib = lib;
+    this.sk = { skills: sel.skills, mcp: sel.mcp };
+    this.skRaw = sel.raw;
+  }
+
+  refreshSkills(cx) {
+    const r = this.sel;
+    if (!r || this.skBusy) return;
+    this.skBusy = true;
+    cx.spawn(async (cx) => {
+      await this.loadSkills(r);
+      // Drop links to skills gone from the library, tidy feature-012 leftovers.
+      if (this.sel === r && this.lib) {
+        await syncBundle(r, this.lib).catch(() => {});
+        await pruneLegacy(r).catch(() => {});
+      }
+      this.skBusy = false;
+      this.skMsg = "";
+      cx.notify();
+    });
+  }
+
+  // One switch: update the selection and save skills.json (fails if it changed elsewhere).
+  toggleSkill(kind, name, cx) {
+    const r = this.sel;
+    if (!r) return;
+    const cur = this.sk[kind];
+    const next = { ...this.sk, [kind]: cur.includes(name) ? cur.filter((x) => x !== name) : [...cur, name] };
+    this.sk = next;
+    cx.spawn(async (cx) => {
+      const w = await writeSelection(r, next, this.skRaw);
+      if (w.ok) {
+        // The project's one shared folder (projects/<slug>/claude-plugin) follows the selection at once.
+        this.skRaw = w.raw;
+        const b = await syncBundle(r, this.lib ?? undefined).catch((e) => ({ skipped: [{ name, reason: String(e?.message ?? e) }] }));
+        await pruneLegacy(r).catch(() => {});
+        const bad = b.skipped.filter((x) => x.name === name || x.reason === "not a link, left alone");
+        this.skMsg = "Saved · applies to Claude sessions of this project" + (bad.length ? `; skipped ${bad.map((x) => `${x.name} (${x.reason})`).join(", ")}` : "");
+      } else {
+        await this.loadSkills(r);
+        this.skMsg = `Failed: ${w.error}. Reloaded the saved selection.`;
+      }
+      cx.notify();
+    });
+  }
+
+  skillsView(t, btn) {
+    const lib = this.lib;
+    if (!lib) return div().text_color(t.muted).child("Loading skills…");
+    const q = this.search.value().trim().toLowerCase();
+    const match = (x) => !q || x.name.toLowerCase().includes(q) || (x.description ?? "").toLowerCase().includes(q);
+    const onSkills = lib.skills.filter((s) => !s.invalid && this.sk.skills.includes(s.name));
+    const onMcp = lib.mcp.filter((m) => !m.invalid && this.sk.mcp.includes(m.name));
+    const mine = estimate(onSkills);
+    const glob = estimate(lib.global);
+    const toggle = (id, on, fn) => div().id(id).w(30).h(17).flex_none().rounded(9).p(2).flex().cursor_pointer()
+      .when(on, (el) => el.justify_end().bg(t.solid)).when(!on, (el) => el.bg(t.raised).border(1).border_color(t.dim))
+      .on_click(fn).child(div().size(on ? 13 : 11).rounded(7).bg(on ? t.solid_foreground : t.dim));
+    const row = (kind, x) => {
+      const on = this.sk[kind].includes(x.name);
+      const note = x.invalid ? `invalid: ${x.invalid}` : x.globalDuplicate ? "also in global — loaded twice if on" : "";
+      return h_flex().id(`sk-${kind}-${x.name}`).gap(10).items_center().px(10).py(6).rounded(7).hover((s) => s.bg(t.hover))
+        .child(div().size(7).flex_none().rounded(4).bg(x.invalid ? t.blocked : on ? t.done : t.dim))
+        .child(v_flex().flex_1().min_w(0)
+          .child(div().font_semibold().truncate().child(x.name))
+          .when(Boolean(x.description), (el) => el.child(div().text_size(11.5).text_color(t.muted).truncate().child(x.description)))
+          .when(Boolean(note), (el) => el.child(div().text_size(11.5).text_color(x.invalid ? t.blocked : t.attention ?? t.muted).child(note))))
+        .when(!x.invalid, (el) => el.child(toggle(`sw-${kind}-${x.name}`, on, (_e, cx) => this.toggleSkill(kind, x.name, cx))));
+    };
+    const section = (title, items, body) => v_flex().gap(2)
+      .child(div().px(10).pt(6).pb(2).text_size(11).text_color(t.dim).child(`${title} (${items.length})`))
+      .children(items.map(body));
+    const skills = lib.skills.filter(match), mcp = lib.mcp.filter(match), global = lib.global.filter(match);
+    return v_flex().flex_1().min_h(0).gap(10)
+      .child(h_flex().gap(8).items_start()
+        .child(v_flex().flex_1().min_w(0).gap(4)
+          .child(div().font_semibold().child("Skills"))
+          .child(div().text_color(t.muted).whitespace_normal().child("Skills and MCP servers turned on here load only in Claude sessions started for this project from the + menu (Claude · N skills). Library:"))
+          .child(div().text_size(11.5).text_color(t.dim).truncate().child(`${skillsDir().replace(home(), "~")}  ·  ${skillsDir().replace(home(), "~").replace(/skills$/, "mcp")}`)))
+        .child(btn("sk-open", "Open folder", () => exec("code", [skillsDir()]).then((r) => { if (r.code !== 0) exec("open", [skillsDir()]); }).catch(() => exec("open", [skillsDir()]))))
+        .child(btn("sk-refresh", this.skBusy ? "Refreshing…" : "Refresh", (_e, cx) => this.refreshSkills(cx))))
+      .child(h_flex().gap(16).text_size(12)
+        .child(div().text_color(t.foreground).child(`On for this project: ${mine.count} skill${mine.count === 1 ? "" : "s"} · ${onMcp.length} MCP · ~${mine.tokens.toLocaleString()} tokens`))
+        .child(div().text_color(t.muted).child(`Global: ${glob.count} skills · ~${glob.tokens.toLocaleString()} tokens`))
+        .child(div().flex_1().text_color(this.skMsg.startsWith("Failed") ? t.blocked : t.muted).truncate().child(this.skMsg)))
+      .child(Input.new(this.search).h(30).px(10).items_center().rounded(6).border(1).border_color(t.border).bg(t.background).text_color(t.foreground))
+      .child(v_flex().id("sk-list").flex_1().min_h(0).overflow_y_scrollbar().gap(8)
+        .when(!lib.skills.length, (el) => el.child(v_flex().gap(8).p(12).rounded(8).border(1).border_color(t.border)
+          .child(div().text_color(t.muted).whitespace_normal().child(`Put skill folders in ${skillsDir().replace(home(), "~")}/ (each with SKILL.md), and MCP servers as one JSON file each in ${skillsDir().replace(home(), "~").replace(/skills$/, "mcp")}/ (secrets as \${VAR}).`))))
+        .when(skills.length > 0, (el) => el.child(section("SKILLS", skills, (x) => row("skills", x))))
+        .when(mcp.length > 0, (el) => el.child(section("MCP SERVERS", mcp, (x) => row("mcp", x))))
+        .when(global.length > 0, (el) => el.child(section("GLOBAL · read-only, loaded everywhere (plus installed plugins)", global, (x) =>
+          v_flex().px(10).py(5).child(div().text_color(t.muted).truncate().child(x.name)).child(div().text_size(11.5).text_color(t.dim).truncate().child(x.description))))));
+  }
+
+  // The + menu asks for this tab with shared "project-settings.tab" = { tab, folder, at }.
+  openRequest(cx) {
+    const req = shared("project-settings.tab");
+    if (!req || typeof req !== "object" || req.at === this.openReq || Date.now() - req.at > 10000) return;
+    this.openReq = req.at;
+    this.tab = req.tab ?? "skills";
+    cx.spawn(async (cx) => {
+      const r = req.folder ? await repoOf(req.folder).catch(() => null) : null;
+      if (r) {
+        const known = this.repos.find((x) => x.main === r.main);
+        if (!known) this.repos = [...this.repos, r].sort((a, b) => a.name.localeCompare(b.name));
+        await this.pick(known ?? r);
+      }
+      cx.notify();
+    });
   }
 
   save(cx) {
@@ -259,7 +381,8 @@ export default class ProjectSettings extends View {
         .child(btn("pset-prompt-save", "Save", (_e, cx) => this.savePrompt(cx), true)));
   }
 
-  render() {
+  render(cx) {
+    this.openRequest(cx);
     const t = theme();
     const dirty = this.sel && this.editor.value() !== (this.saved ?? TEMPLATE);
     const btn = (id, label, fn, primary) => div().id(id).px(12).py(5).rounded(6).border(1).border_color(t.border)
@@ -287,11 +410,12 @@ export default class ProjectSettings extends View {
             .child(div().text_size(18).font_semibold().child(this.sel.name))
             .child(div().text_size(11.5).text_color(t.dim).truncate().child(this.sel.main.replace(home(), "~"))))
           .child(h_flex().gap(4)
-            .children([["ports", "Ports"], ["script", "Worktree script"], ["prompt", "Summary prompt"]].map(([k, label]) => div().id(`tab-${k}`).px(12).py(4).rounded(6).cursor_pointer()
+            .children([["ports", "Ports"], ["script", "Worktree script"], ["prompt", "Summary prompt"], ["skills", "Skills"]].map(([k, label]) => div().id(`tab-${k}`).px(12).py(4).rounded(6).cursor_pointer()
               .text_color(this.tab === k ? t.foreground : t.muted).when(this.tab === k, (x) => x.bg(t.selected)).hover((x) => x.bg(t.hover))
-              .on_click((_e, cx) => { this.tab = k; cx.notify(); }).child(label))))
+              .on_click((_e, cx) => { this.tab = k; if (k === "skills") this.refreshSkills(cx); cx.notify(); }).child(label))))
           .when(this.tab === "ports", (x) => x.child(this.portsView(t)))
           .when(this.tab === "prompt", (x) => x.child(this.promptView(t, btn)))
+          .when(this.tab === "skills", (x) => x.child(this.skillsView(t, btn)))
           .when(this.tab === "script", (x) => x
           .child(v_flex().gap(4)
             .child(div().font_semibold().child("Worktree script"))

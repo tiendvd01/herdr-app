@@ -1,0 +1,24 @@
+{
+  "name": "plan-table",
+  "ready": ".plantbl tbody tr",
+  "states": [
+    { "name": "read", "steps": [] },
+    { "name": "edit", "steps": [{ "clickText": "編集", "exact": true, "within": "button" }, { "wait": 400 }] }
+  ],
+  "targets": [
+    { "name": "th", "selector": ".plantbl thead th", "limit": 14, "states": ["read", "edit"] },
+    { "name": "table", "selector": ".plantbl", "props": ["width", "tableLayout"], "states": ["read", "edit"] },
+    { "name": "chip", "selector": ".plantbl tbody td.psk--2 > span:first-child", "states": ["read"] },
+    {
+      "name": "kind-editor",
+      "selector": { "demo": ".plantbl tbody td.psk--2 select", "app": ".plantbl tbody td.psk--2 button" },
+      "states": ["edit"]
+    },
+    {
+      "name": "order-editor",
+      "selector": { "demo": ".plantbl tbody td:nth-child(4) select", "app": ".plantbl tbody td:nth-child(4) button" },
+      "states": ["edit"]
+    },
+    { "name": "order-cell", "selector": ".plantbl tbody td:nth-child(4)", "props": ["paddingTop", "paddingLeft"], "states": ["edit"] }
+  ]
+}

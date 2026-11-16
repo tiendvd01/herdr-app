@@ -41,14 +41,18 @@ The window is `layouts/tiendvd-layout.json`, a tree of `row`/`column`/`stack`/`b
 - `issues` keeps per-space state (repo, filters, search, open issue) in `localStorage` key `spaces`, and fetches through the `gh` CLI. New spaces default to state Open and Mine (`fresh()` in `mods/issues/main.js`). `mods/issues/.diagrams/` is a gitignored render cache.
 - `reviewer` is split into `main.js`, `dialog.js`, `highlight.js`, `ask.js`, `palette.js`; `issues` and `file-icons` share `lib/markdown.js` (markdown + mermaid diagrams drawn by `mmdc` + fenced code colored by highlight.js via `lib/code-highlight.js` and `lib/vendor/highlight.min.js`) and `lib/diagram-viewer.js` (zoomable dialog overlay of the same mod), synced by `scripts/sync-github-lib.sh`.
 
-## Mod docs
+## Per-project Claude skills
 
-The panels follow the focused terminal's folder (`lib/space-folder.js`, copied into mods by `scripts/sync-github-lib.sh`); there is no pinned per-space folder any more. See `docs/space-folder.md`. `gh` calls in `pr-flow`, `better-sidebar` and `issues` pick the gh account by repo owner (`lib/gh-account.js`, `docs/gh-account.md`); keep the work account active.
+`skills/<name>/SKILL.md` and `mcp/<name>.json` (one server config per file, secrets only as `${VAR}`) are a tracked library filled by hand, not loaded globally. Project Settings › Skills turns single items on per git project: it saves `projects/<slug>/skills.json` and at once syncs the project's one shared plugin folder `projects/<slug>/claude-plugin/` in place (symlinks into `skills/`, merged `.mcp.json`, generated `plugin.json`; only changed links are added or removed). The + menu row `Claude · N skills` syncs that folder again and starts `claude --plugin-dir <that folder>` (skills appear as `herdr-<repo>:<skill>`); all sessions and worktrees of a project share it, so a switch can reach running sessions. Leftover per-launch `claude-sessions/<stamp>` folders from spec 012 are removed once no process's command line names them. With nothing on, the row is `Project skills…` and opens the tab. Names outside `[A-Za-z0-9._-]` are listed as invalid. Logic: `lib/project-skills.js` (synced into `project-settings` and `my-new-menu`). Nothing ever writes to `skills/`, `mcp/` or `~/.claude/`. Specs: `specs/012-space-skillsets/`, `specs/013-shared-project-skills/`.
+
+## Shared behaviour
+
+The panels follow the focused terminal's folder (`lib/space-folder.js`, copied into mods by `scripts/sync-github-lib.sh`); there is no pinned per-space folder any more. `gh` calls in `pr-flow`, `better-sidebar` and `issues` pick the gh account by repo owner (`lib/gh-account.js`); keep the work account active.
 
 
-Buttons in the five right-side panels (Files, Changes, Issues, Git, Pull requests) come from `lib/panel-ui.js` with icons in `lib/icons/` (synced by the same script): icon + tooltip for well-known actions, arrow + label for Back, text chips for filters, text buttons for actions. See `docs/panel-ui.md`.
+Buttons in the five right-side panels (Files, Changes, Issues, Git, Pull requests) come from `lib/panel-ui.js` with icons in `lib/icons/` (synced by the same script): icon + tooltip for well-known actions, arrow + label for Back, text chips for filters, text buttons for actions.
 
-Per-mod behaviour notes live in `docs/mods/` (kept outside `mods/` because saving any file under a mod folder hot-reloads it): `mermaid-board` (dán + preview + lưu sơ đồ mermaid), `processes` (Sessions dialog), `status-usage` (status bar, AI usage limits, post-create runner), `project-settings` (Ports + Worktree script), `issues`, `reviewer` (Changes), `inbox`. Update the matching file when changing a mod's behaviour.
+There is no `docs/` folder (removed on purpose). Behaviour notes for a mod go in this file, short, and a spec-kit feature keeps its detail in `specs/<nnn>-<feature>/`. Never write notes under `mods/` (saving there hot-reloads the mod).
 
 ## Git
 
@@ -58,12 +62,12 @@ Commits so far are all terse messages (`update`). `.gitignore` excludes runtime 
 
 ### Issue tracker
 
-Issues và spec lưu dạng markdown trong `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
+Issues và spec lưu dạng markdown trong `.scratch/<feature>/`.
 
 ### Triage labels
 
-Năm nhãn mặc định (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`), ghi ở dòng `Status:` của file issue. See `docs/agents/triage-labels.md`.
+Năm nhãn mặc định (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`), ghi ở dòng `Status:` của file issue.
 
 ### Domain docs
 
-Single-context: một `GLOSSARY.md` + `docs/adr/` ở gốc repo. See `docs/agents/domain.md`.
+Single-context: một `GLOSSARY.md` ở gốc repo khi cần; không có `docs/adr/`.
