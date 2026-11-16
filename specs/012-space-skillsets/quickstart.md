@@ -1,5 +1,7 @@
 # Quickstart: validate Per-Project Skills
 
+> **Superseded in part by `specs/013-shared-project-skills/`**: one shared folder per project (`projects/<slug>/claude-plugin/`) synced in place on every switch and launch; per-launch `claude-sessions/` folders are no longer made, and FR-010 (running sessions unaffected) is relaxed.
+
 No test suite in this repo; validation is `herdr-app check` plus the manual scenarios below.
 
 ## Gate

@@ -91,7 +91,7 @@ Folders made per launch by feature 012 are removed once no running Claude uses t
 
 ### Key Entities
 
-- **Project skills folder**: one per project; holds a link per skill that is on, the list of MCP servers that are on, and the plugin description Claude needs. Derived from the selection; rebuilt on every change and before every launch.
+- **Project skills folder**: one per project; holds a link per skill that is on, the list of MCP servers that are on, and the plugin description Claude needs. Derived from the selection; synced in place on every change and before every launch.
 - **Selection**: unchanged from feature 012 (`skills.json`, the source of truth).
 - **Leftover launch folder**: a per-launch folder made by feature 012; removed when unused.
 

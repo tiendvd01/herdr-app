@@ -1,5 +1,7 @@
 # Contract: `lib/project-skills.js`
 
+> **Superseded in part by `specs/013-shared-project-skills/`**: one shared folder per project (`projects/<slug>/claude-plugin/`) synced in place on every switch and launch; per-launch `claude-sessions/` folders are no longer made, and FR-010 (running sessions unaffected) is relaxed.
+
 Single source, copied into `mods/project-settings/project-skills.js` and `mods/my-new-menu/project-skills.js` by `scripts/sync-github-lib.sh`. Only uses `exec`, `readTextFile`, `writeTextFile`, `home` from `herdr`. All functions are async and never throw for expected cases (missing files, empty library); they return values carrying the problem instead.
 
 ```js

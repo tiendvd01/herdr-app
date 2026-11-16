@@ -1,5 +1,7 @@
 # Implementation Plan: Per-Project Skills for Claude Sessions
 
+> **Superseded in part by `specs/013-shared-project-skills/`**: one shared folder per project (`projects/<slug>/claude-plugin/`) synced in place on every switch and launch; per-launch `claude-sessions/` folders are no longer made, and FR-010 (running sessions unaffected) is relaxed.
+
 **Branch**: `012-space-skillsets` (no branch created) | **Date**: 2026-11-16 | **Spec**: [spec.md](spec.md)
 
 **Input**: Feature specification from `/specs/012-space-skillsets/spec.md`

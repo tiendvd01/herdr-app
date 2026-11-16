@@ -5,6 +5,8 @@ description: "Task list for Per-Project Skills for Claude Sessions"
 
 # Tasks: Per-Project Skills for Claude Sessions
 
+> **Superseded in part by `specs/013-shared-project-skills/`**: one shared folder per project (`projects/<slug>/claude-plugin/`) synced in place on every switch and launch; per-launch `claude-sessions/` folders are no longer made, and FR-010 (running sessions unaffected) is relaxed.
+
 **Input**: Design documents from `/specs/012-space-skillsets/`
 
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/project-skills-lib.md, contracts/ui.md, quickstart.md

@@ -47,7 +47,7 @@ The window is `layouts/tiendvd-layout.json`, a tree of `row`/`column`/`stack`/`b
 
 ## Shared behaviour
 
-The panels follow the focused terminal's folder (`lib/space-folder.js`, copied into mods by `scripts/sync-github-lib.sh`); there is no pinned per-space folder any more. `gh` calls in `pr-flow`, `better-sidebar` and `issues` pick the gh account by repo owner (`lib/gh-account.js`); keep the work account active.
+The panels follow the focused terminal's folder (`lib/space-folder.js`, copied into mods by `scripts/sync-github-lib.sh`); there is no pinned per-space folder any more. Project Settings lists the git projects of every terminal's live folder in local spaces (Herdr's `space.folder` only for a space with no terminal yet, since it is where the space started and goes stale), and opens on the focused terminal's project. `gh` calls in `pr-flow`, `better-sidebar` and `issues` pick the gh account by repo owner (`lib/gh-account.js`); keep the work account active.
 
 
 Buttons in the five right-side panels (Files, Changes, Issues, Git, Pull requests) come from `lib/panel-ui.js` with icons in `lib/icons/` (synced by the same script): icon + tooltip for well-known actions, arrow + label for Back, text chips for filters, text buttons for actions.
