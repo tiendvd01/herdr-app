@@ -3,8 +3,9 @@
 // (the watcher lives in status-usage/postscripts.js).
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, EditorState, Editor, InputState, Input } from "gpui-base";
-import { theme, spaces, exec, readTextFile, writeTextFile, home, settings, run, terminals, panes, shared } from "herdr";
+import { theme, spaces, exec, readTextFile, writeTextFile, home, settings, run, terminals, panes, shared, setShared, props, closeOverlay } from "herdr";
 import { spaceFolder } from "./space-folder.js";
+import { btn as kitBtn, button, dialogFrame } from "./panel-ui.js";
 import { loadPorts as loadPortsOf, shortHome } from "./ports.js";
 import { projectOf, scanLibrary, readSelection, writeSelection, syncBundle, pruneLegacy, estimate, skillsDir, mcpDir } from "./project-skills.js";
 
@@ -56,7 +57,20 @@ async function loadPorts(r) {
 }
 
 export default class ProjectSettings extends View {
+  // Opened as a dialog (mod.open): shared "project-settings.dialog" holds the overlay id while open.
+  async close() {
+    if (this.overlay != null && shared("project-settings.dialog") === this.overlay) setShared("project-settings.dialog", null);
+  }
+
+  // Leave the page: close the dialog (an old layout may still show it in the content stack).
+  leave() {
+    if (this.overlay != null) closeOverlay(this.overlay);
+    else run("layout.select", { stack: "content", child: "main" });
+  }
+
   init(_props, cx) {
+    this.overlay = props()?.overlay ?? null;
+    if (this.overlay != null) setShared("project-settings.dialog", this.overlay);
     this.repos = [];
     this.sel = null;
     this.saved = null;
@@ -98,7 +112,7 @@ export default class ProjectSettings extends View {
 
   // Jump to the pane showing that terminal (its space and tab first).
   gotoTerminal(addr) {
-    run("layout.select", { stack: "content", child: "main" });
+    this.leave();
     const p = panes().find((x) => x.terminal === addr);
     const sp = spaces().find((s) => s.tabs?.some((tb) => tb.id === p?.tab));
     if (sp) run("space.select", { id: sp.id });
@@ -108,12 +122,11 @@ export default class ProjectSettings extends View {
 
   portsView(t) {
     const total = this.trees.reduce((a, w) => a + w.items.length, 0);
-    const link = (id, label, fn, danger) => div().id(id).px(8).py(3).rounded(5).border(1).border_color(t.border).text_size(12)
-      .text_color(danger ? t.blocked : t.foreground).cursor_pointer().hover((s) => s.bg(t.raised)).on_click(fn).child(label);
+    const link = (id, label, fn, danger) => kitBtn(id, { kind: danger ? "danger" : "secondary", size: "sm", label, action: fn });
     return v_flex().id("ports-list").flex_1().min_h(0).overflow_y_scrollbar().gap(10)
       .child(h_flex().gap(8).items_center()
         .child(div().flex_1().text_color(t.muted).child(`${total} listening port${total === 1 ? "" : "s"} across ${this.trees.length} worktrees (auto-refresh 3s)`))
-        .child(link("ports-reload", this.busy ? "Reloading…" : "Reload", (_e, cx) => this.refreshPorts(cx, true))))
+        .child(link("ports-reload", "Reload", (_e, cx) => this.refreshPorts(cx, true)))) // no busy spinner: auto-refresh runs every 3 s
       .children(this.trees.map((w) => v_flex().gap(6).p(10).rounded(8).border(1).border_color(t.border).bg(t.raised)
         .child(h_flex().gap(8).items_center()
           .child(div().size(7).rounded(4).bg(w.items.length ? t.done : t.dim))
@@ -362,16 +375,13 @@ export default class ProjectSettings extends View {
     this.openRequest(cx);
     const t = theme();
     const dirty = this.sel && this.editor.value() !== (this.saved ?? TEMPLATE);
-    const btn = (id, label, fn, primary) => div().id(id).px(12).py(5).rounded(6).border(1).border_color(t.border)
-      .text_size(12).cursor_pointer().when(primary, (el) => el.bg(t.solid).text_color(t.solid_foreground))
-      .hover((s) => s.bg(primary ? t.solid : t.raised)).on_click(fn).child(label);
-    return h_flex().id("pset-root").size_full().min_h(0).bg(t.surface).text_color(t.foreground).text_size(13)
-      .rounded(10).border(1).border_color(t.border).overflow_hidden()
+    const btn = (id, label, fn, primary) => button(id, label, fn, { primary });
+    // As a dialog: the kit's dialog frame (same as Changes, Git, Pull requests).
+    const root = h_flex().id("pset-root").size_full().min_h(0).text_color(t.foreground).text_size(13);
+    return (this.overlay != null ? dialogFrame(root) : root.bg(t.surface).rounded(10).border(1).border_color(t.border).overflow_hidden())
       .child(v_flex().w(210).flex_none().h_full().bg(t.chrome).border_r(1).border_color(t.border)
-        .child(h_flex().id("pset-back").h(40).px(14).gap(6).items_center().flex_none().cursor_pointer().text_size(12).text_color(t.muted)
-          .hover((s) => s.text_color(t.foreground))
-          .on_click(() => run("layout.select", { stack: "content", child: "main" }))
-          .child(svg("mods/project-settings/chevron-left.svg").size(13).flex_none()).child("Back"))
+        .child(h_flex().h(40).px(10).items_center().flex_none()
+          .child(kitBtn("pset-back", { kind: "ghost", icon: this.overlay != null ? "close" : "back", label: this.overlay != null ? "Close" : "Back", color: t.muted, action: () => this.leave() })))
         .child(div().h(26).px(14).flex().items_center().text_size(11.5).text_color(t.dim).child("Projects"))
         .child(v_flex().id("pset-repos").flex_1().min_h(0).overflow_y_scrollbar().px(8).pb(8).gap(2)
           .when(this.loaded && !this.repos.length, (el) => el.child(div().p(8).text_color(t.muted).child("No git projects open")))
@@ -387,9 +397,8 @@ export default class ProjectSettings extends View {
             .child(div().text_size(18).font_semibold().child(this.sel.name))
             .child(div().text_size(11.5).text_color(t.dim).truncate().child(this.sel.main.replace(home(), "~"))))
           .child(h_flex().gap(4)
-            .children([["ports", "Ports"], ["script", "Worktree script"], ["prompt", "Summary prompt"], ["skills", "Skills"]].map(([k, label]) => div().id(`tab-${k}`).px(12).py(4).rounded(6).cursor_pointer()
-              .text_color(this.tab === k ? t.foreground : t.muted).when(this.tab === k, (x) => x.bg(t.selected)).hover((x) => x.bg(t.hover))
-              .on_click((_e, cx) => { this.tab = k; if (k === "skills") this.refreshSkills(cx); cx.notify(); }).child(label))))
+            .children([["ports", "Ports"], ["script", "Worktree script"], ["prompt", "Summary prompt"], ["skills", "Skills"]].map(([k, label]) => kitBtn(`tab-${k}`, { kind: "chip", size: "md", label, on: this.tab === k,
+              action: (_e, cx) => { this.tab = k; if (k === "skills") this.refreshSkills(cx); cx.notify(); } }))))
           .when(this.tab === "ports", (x) => x.child(this.portsView(t)))
           .when(this.tab === "prompt", (x) => x.child(this.promptView(t, btn)))
           .when(this.tab === "skills", (x) => x.child(this.skillsView(t, btn)))

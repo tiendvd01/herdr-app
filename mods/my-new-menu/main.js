@@ -77,7 +77,8 @@ export default class NewMenu extends View {
   openSkillsTab() {
     const space = spaces().find(s => s.active);
     setShared("project-settings.tab", { tab: "skills", folder: spaceFolder(space) ?? null, at: Date.now() });
-    run("layout.select", { stack: "content", child: "project-settings" });
+    // Project Settings is a dialog: open it unless it is open already (mod.open again would close it).
+    if (shared("project-settings.dialog") == null) run("mod.open", { name: "project-settings" });
   }
   choices() {
     const installed = this.agents.filter(a => a.installed);

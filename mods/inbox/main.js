@@ -4,11 +4,12 @@
 // Reads GitHub only; the PR code (gh, status) is pr-flow's.
 import { View, div, svg, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { agents, spaces, run, theme, exec, notify, setShared, nextCommand, layout } from "herdr";
+import { agents, spaces, run, theme, exec, notify, shared, setShared, nextCommand, layout } from "herdr";
 import { createGh, parsePrUrl } from "./gh.js";
 import { ciSummary } from "./status.js";
 import { repoFromRemote, githubHostChecker } from "./github.js";
 import { spaceFolder } from "./space-folder.js";
+import { btn, iconButton } from "./panel-ui.js";
 
 const MOD = "inbox";
 const PR_POLL_MS = 120_000; // each open PR, at most this often
@@ -258,12 +259,12 @@ export default class Inbox extends View {
       const ordered = [...all.filter((s) => s.active), ...all.filter((s) => !s.active)];
       let space = null;
       for (const s of ordered) if ((await this.repoOf(s)) === t.repo) { space = s; break; }
+      // Pull requests is a dialog: open it unless it is open already (mod.open again would close it).
       const show = () => {
-        run("layout.select", { stack: "panel-body", child: "prs" });
-        run("layout.show", { id: "panel" });
         setShared("pr-flow.goto", { url: t.url, at: Date.now() });
+        if (shared("pr-flow.dialog") == null) run("mod.open", { name: "pr-flow" });
       };
-      // my-tabs restores each space's own panel right after a switch; open ours after that.
+      // Open after the space switch has settled (my-tabs restores the space's own panel then).
       if (space && !space.active) {
         run("space.select", { id: space.id });
         cx.timer.after(600, () => show());
@@ -331,12 +332,8 @@ export default class Inbox extends View {
       .child(v_flex().flex_none().items_end().gap(3)
         .child(hovered
           ? (it.done
-            ? div().id(`rm-${it.key}`).p(1).rounded(4).text_color(t.dim).hover((s) => s.bg(t.raised).text_color(t.foreground)).tooltip("Remove")
-              .on_click((_e, cx) => { cx.stop_propagation(); this.remove(it.key); this.save(); this.hovered = null; cx.notify(); })
-              .child(icon("x", 12, t.dim))
-            : div().id(`mark-${it.key}`).p(1).rounded(4).text_color(t.dim).hover((s) => s.bg(t.raised).text_color(t.foreground)).tooltip("Mark as done")
-              .on_click((_e, cx) => { cx.stop_propagation(); this.markDone(it.key); this.save(); this.hovered = null; cx.notify(); })
-              .child(icon("check", 12, t.dim)))
+            ? iconButton(`rm-${it.key}`, "close", "Remove", (_e, cx) => { cx.stop_propagation(); this.remove(it.key); this.save(); this.hovered = null; cx.notify(); }, { small: true })
+            : iconButton(`mark-${it.key}`, "check", "Mark as done", (_e, cx) => { cx.stop_propagation(); this.markDone(it.key); this.save(); this.hovered = null; cx.notify(); }, { small: true }))
           : div().text_size(10.5).text_color(t.dim).child(ago(now - it.at)))
         .when(unread, (el) => el.child(div().size(6).rounded(3).bg(t.accent ?? t.working))));
   }
@@ -357,14 +354,13 @@ export default class Inbox extends View {
       .child(div().child("Done"))
       .child(div().child(String(done.length)))
       .child(div().flex_1())
-      .when(this.showDone, (el) => el.child(div().id("in-clear").px(4).rounded(4).text_size(10.5).hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Remove every done entry")
-        .on_click((_e, cx) => { cx.stop_propagation(); this.clearDone(); cx.notify(); })
-        .child("Clear")));
+      .when(this.showDone, (el) => el.child(btn("in-clear", { kind: "ghost", size: "sm", label: "Clear", tip: "Remove every done entry",
+        action: (_e, cx) => { cx.stop_propagation(); this.clearDone(); cx.notify(); } })));
 
     return v_flex().size_full().min_h(0).bg(t.chrome).border_t(1).border_color(t.border).items_center().pt(8)
-        .child(div().id("inbox-rail").relative().p(4).rounded(6).hover((s) => s.bg(t.hover)).tooltip(`Inbox · ${unread} unread`)
-          .on_click((_e, cx) => { const it = live[0]; if (it) this.open(it, cx); })
-          .child(icon("inbox", 16, unread ? t.foreground : t.dim))
+        .child(div().relative()
+          .child(btn("inbox-rail", { kind: "icon", icon: `mods/${MOD}/inbox.svg`, tip: `Inbox · ${unread} unread`, color: unread ? t.foreground : t.dim,
+            action: (_e, cx) => { const it = live[0]; if (it) this.open(it, cx); } }))
           .when(unread > 0, (el) => el.child(div().absolute().top(0).right(0).min_w(13).h(13).px(3).rounded(7).bg(t.blocked).text_size(9).font_bold().text_color(t.background).flex().items_center().justify_center().child(String(unread)))));
     }
 
@@ -372,9 +368,7 @@ export default class Inbox extends View {
       .child(div().text_size(11.5).font_medium().text_color(t.dim).child("Inbox"))
       .when(unread > 0, (el) => el.child(div().px(5).h(15).rounded(8).bg(t.blocked + "26").text_size(10).font_semibold().text_color(t.blocked).flex().items_center().child(String(unread))))
       .child(div().flex_1())
-      .when(live.length > 0, (el) => el.child(div().id("in-readall").text_color(t.dim).hover((s) => s.text_color(t.foreground)).tooltip("Mark all as done")
-        .on_click((_e, cx) => { this.doneAll(); cx.notify(); })
-        .child(icon("check", 14, t.dim))));
+      .when(live.length > 0, (el) => el.child(iconButton("in-readall", "check", "Mark all as done", (_e, cx) => { this.doneAll(); cx.notify(); }, { small: true })));
 
     const doneHeader = h_flex().id("in-done").px(8).pt(8).h(28).flex_none().gap(6).items_center().text_size(11).font_medium().text_color(t.dim).cursor_pointer()
       .hover((s) => s.text_color(t.foreground))
@@ -383,9 +377,8 @@ export default class Inbox extends View {
       .child(div().child("Done"))
       .child(div().child(String(done.length)))
       .child(div().flex_1())
-      .when(this.showDone, (el) => el.child(div().id("in-clear").px(4).rounded(4).text_size(10.5).hover((s) => s.bg(t.hover).text_color(t.foreground)).tooltip("Remove every done entry")
-        .on_click((_e, cx) => { cx.stop_propagation(); this.clearDone(); cx.notify(); })
-        .child("Clear")));
+      .when(this.showDone, (el) => el.child(btn("in-clear", { kind: "ghost", size: "sm", label: "Clear", tip: "Remove every done entry",
+        action: (_e, cx) => { cx.stop_propagation(); this.clearDone(); cx.notify(); } })));
 
     return v_flex().size_full().min_h(0).bg(t.chrome).border_t(1).border_color(t.border).text_size(13)
       .child(header)

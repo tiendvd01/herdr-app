@@ -36,7 +36,7 @@ import { ask } from "./ask.js";
 import { palette } from "./palette.js";
 import { activePlace } from "./space-folder.js";
 import { Dialog } from "./dialog.js";
-import { icon, iconButton, chip, button, textButton } from "./panel-ui.js";
+import { icon, iconButton, chip, button, textButton, dialogFrame } from "./panel-ui.js";
 
 // The focused pane's folder (space-folder.js).
 function location() {
@@ -821,7 +821,7 @@ export default class Changes extends View {
       // Narrow panel: the comment box is a strip under the diff instead of a column beside it.
       .when(Boolean(this.composer) && this.narrow(), (e) => e.child(this.box(t, target, true)))
       ;
-    return v_flex().id("changes").size_full().min_h(0).relative().rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).shadow_lg().text_color(t.foreground).text_size(13).track_focus(this.handle)
+    return dialogFrame(v_flex().id("changes").size_full().min_h(0).relative()).text_color(t.foreground).text_size(13).track_focus(this.handle)
       .on_size_change((size, cx) => { const w = this.size?.width; this.size = size; if (w !== size.width) { this.rebuild(); cx.notify(); } })
       .on_key_down((e, cx) => {
         if (e.key === "escape" && this.typing) { this.typing = false; this.handle.focus(); cx.stop_propagation(); cx.notify(); }

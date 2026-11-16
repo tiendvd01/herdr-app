@@ -4,6 +4,7 @@ import { spaces, agents, theme, run, window, keys, exec, setShared, openOverlay,
 import { collect } from "./procs.js";
 import { checkPostScripts } from "./postscripts.js";
 import { spaceFolder } from "./space-folder.js";
+import { btn } from "./panel-ui.js";
 
 const ICONS = { claude: "claude", copilot: "copilot", codex: "codex", agy: "antigravity", gemini: "gemini" };
 
@@ -134,11 +135,9 @@ export default class WorkspaceStatus extends View {
     const all = tasks;
     const cpu = all.reduce((a, i) => a + i.cpu, 0);
     const mb = all.reduce((a, i) => a + i.rss, 0) / 1048576;
-    return h_flex().id("procs-badge").gap(6).items_center().cursor_pointer()
-      .hover((s) => s.text_color(t.foreground))
-      .on_click(() => openOverlay({ mod: "processes", kind: "dialog", width: 920, height: 720 }))
-      .child(svg("mods/workspace-chrome/layers.svg").size(13))
-      .child(`${tasks.length} proc · ${cpu.toFixed(0)}% · ${mb >= 1024 ? (mb / 1024).toFixed(1) + "G" : mb.toFixed(0) + "M"}`);
+    return btn("procs-badge", { kind: "ghost", size: "sm", icon: "mods/workspace-chrome/layers.svg", color: t.muted, tip: "Processes",
+      label: `${tasks.length} proc · ${cpu.toFixed(0)}% · ${mb >= 1024 ? (mb / 1024).toFixed(1) + "G" : mb.toFixed(0) + "M"}`,
+      action: () => openOverlay({ mod: "processes", kind: "dialog", width: 920, height: 720 }) });
   }
 
   render() {
@@ -159,17 +158,16 @@ export default class WorkspaceStatus extends View {
     const label = (icon, text) => h_flex().gap(6).items_center().child(svg(`mods/workspace-chrome/${icon}.svg`).size(13)).child(text);
     return h_flex().size_full().px(14).gap(16).items_center().bg(t.chrome).border_t(1).border_color(t.border).text_size(11.8).text_color(t.muted)
       .child(label(space?.machine ? "server" : "monitor", space?.machine ?? "This computer"))
-      .when(Boolean(this.branch), el => el.child(h_flex().id("branch-switch").cursor_pointer()
-        .hover((s) => s.text_color(t.foreground))
-        .on_click(() => openOverlay({ mod: "branch-switch", kind: "popup", width: 380, height: 420 }))
-        .child(label("branch", this.branch))
-        .child(svg("mods/workspace-chrome/chevron-down.svg").size(11).ml(3))))
+      // Status bar buttons: kit ghost, small (the bar is 28px).
+      .when(Boolean(this.branch), el => el.child(btn("branch-switch", { kind: "ghost", size: "sm", icon: "mods/workspace-chrome/branch.svg", label: this.branch, color: t.muted,
+        extra: svg("mods/workspace-chrome/chevron-down.svg").size(11), tip: "Switch branch",
+        action: () => openOverlay({ mod: "branch-switch", kind: "popup", width: 380, height: 420 }) })))
       .child(h_flex().gap(6).items_center().child(div().size(6).rounded(3).bg(t.dim)).child(`${list.length} agents`)
         .when(needs > 0, el => el.child(div().text_color(t.blocked).child(`· ${needs} needs you`))))
       .child(this.procBadge(t))
       .child(usage)
       .child(div().flex_1())
-      .child(div().id("mermaid").cursor_pointer().hover((s) => s.text_color(t.foreground)).on_click(() => run("mod.open", { name: "mermaid-board" })).child("Mermaid"))
+      .child(btn("mermaid", { kind: "ghost", size: "sm", label: "Mermaid", color: t.muted, action: () => run("mod.open", { name: "mermaid-board" }) }))
       .child(div().id("palette").text_color(t.dim).on_click(() => run("app.palette")).child(this.hint(t)));
   }
 }

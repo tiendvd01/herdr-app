@@ -1,6 +1,7 @@
 <!--
 Sync Impact Report (temporary review scratch; remove before commit)
-- Version change: 1.0.0 → 2.0.0 (MAJOR: principle VI redefined)
+- Version change: 2.0.0 → 2.1.0 (MINOR: principle V widened from the five panels to every personal screen, spec 018)
+- Previous: 1.0.0 → 2.0.0 (MAJOR: principle VI redefined)
 - Modified principles: VI "Documentation Tracks Behaviour" → "Intent Lives in CLAUDE.md and Specs"
   (the `docs/` folder was removed on purpose in commit 403dc1a; no per-mod docs any more)
 - Added sections: none
@@ -48,12 +49,15 @@ for.
 Rationale: these are the rules of the gpui-kit render model; breaking them causes render loops or
 stale handles.
 
-### V. Consistent Panel UI
-Buttons in the Files, Changes, Issues, Git and Pull requests panels MUST come from `lib/panel-ui.js`
-with icons from `lib/icons/` (Lucide, stroke `currentColor`): icon + tooltip for well-known actions,
-arrow + label for Back, text chips for filters, text buttons for actions. Panels MUST follow the
-focused terminal's folder via `lib/space-folder.js`; no pinned per-space folder.
-Rationale: one look and one folder rule across panels keeps behaviour predictable.
+### V. Consistent UI from One Kit
+Buttons and common surfaces on every personal screen (panels, dialogs, tab bar, sidebar, status bar,
+Project Settings, inbox...) MUST come from the UI kit `lib/panel-ui.js` (spec 018): `btn()` kinds and
+sizes, its wrappers, the `UI` tokens and the surfaces (`dialogFrame`, `card`, ...), with icons from
+`lib/icons/` (Lucide, stroke `currentColor`) or an svg path. Rule of use: icon + tooltip for well-known
+actions, arrow + label for Back, chips for filters, text buttons for actions. Button motion MUST stay
+native (no timers). Panels MUST follow the focused terminal's folder via `lib/space-folder.js`; no
+pinned per-space folder.
+Rationale: one look, one motion and one folder rule across screens keeps behaviour predictable.
 
 ### VI. Intent Lives in CLAUDE.md and Specs
 There is no `docs/` folder. A change to a mod's behaviour that a future reader needs to know MUST be
@@ -94,4 +98,4 @@ new principle or materially expanded guidance, PATCH for clarifications. Complia
 whenever a mod, layout or shared `lib/` file changes: the reviewer verifies the principles above,
 especially I, II and IV. Runtime guidance lives in `CLAUDE.md` and `AGENTS.md`.
 
-**Version**: 2.0.0 | **Ratified**: 2026-11-13 | **Last Amended**: 2026-11-16
+**Version**: 2.1.0 | **Ratified**: 2026-11-13 | **Last Amended**: 2026-11-16

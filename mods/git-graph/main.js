@@ -1,5 +1,5 @@
 import { View } from "gpui-kit";
-import { props } from "herdr";
+import { props, shared, setShared } from "herdr";
 import { Graph } from "./graph.js";
 import { Menu } from "./menu.js";
 import { Dialog } from "./dialog.js";
@@ -17,4 +17,10 @@ export default class GitGraph extends View {
   }
 
   render(cx) { return this.part.render(cx); }
+
+  // The Git dialog closed (Esc, mod.open again): the tab bar's button goes off.
+  async close() {
+    const id = this.part instanceof Graph ? this.part.overlay : null;
+    if (id != null && shared("git-graph.dialog") === id) setShared("git-graph.dialog", null);
+  }
 }

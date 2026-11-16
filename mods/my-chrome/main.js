@@ -33,11 +33,8 @@ export default class WorkspaceChrome extends View {
     const t = theme();
     const collapsed = narrow();
     if (props()?.footer) {
-      // Project Settings page: the "content" stack shows it instead of the active tab.
-      const open = find(layout(), "content")?.active === "project-settings";
-      const act = spaces().find((s) => s.active)?.id ?? null;
-      if (this.act !== undefined && this.act !== act && open) run("layout.select", { stack: "content", child: "main" });
-      this.act = act;
+      // Project Settings is a dialog (mod.open again closes it); shared "project-settings.dialog" is set while open.
+      const open = shared("project-settings.dialog") != null;
       const row = (id, icon, label, dim, action, on) => h_flex().id(id).h(28).px(8).gap(9).items_center().rounded(8)
         .text_color(on ? t.foreground : dim ? t.dim : t.muted).hover(s => s.bg(t.hover).text_color(t.foreground)).cursor_pointer()
         .when(on, el => el.bg(t.selected))
@@ -47,7 +44,7 @@ export default class WorkspaceChrome extends View {
         .child(row("settings", "settings", "Settings", false, () => run("app.settings"))
           .when(Boolean(updates().app.ready), el => el.child(div().size(6).rounded_full().bg(t.accent))))
         .child(row("project-settings", "folder-cog", "Project Settings", false,
-          () => run("layout.select", { stack: "content", child: open ? "main" : "project-settings" }), open))
+          () => run("mod.open", { name: "project-settings" }), open))
         .child(row("machine", "plus", "Add machine", true, () => run("mod.open", { name: "machine-add" })));
     }
     return h_flex().size_full().bg(t.chrome).pl(collapsed ? 6 : 14).pr(10).gap(4).items_center().text_size(13.5)

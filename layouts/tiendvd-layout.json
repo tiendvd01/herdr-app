@@ -133,13 +133,6 @@
                       "lone": true
                     }
                   }
-                },
-                {
-                  "id": "project-settings",
-                  "type": "block",
-                  "content": {
-                    "mod": "project-settings"
-                  }
                 }
               ],
               "active": "main"
@@ -164,20 +157,6 @@
                       "type": "block",
                       "content": {
                         "mod": "issues"
-                      }
-                    },
-                    {
-                      "id": "graph",
-                      "type": "block",
-                      "content": {
-                        "mod": "git-graph"
-                      }
-                    },
-                    {
-                      "id": "prs",
-                      "type": "block",
-                      "content": {
-                        "mod": "pr-flow"
                       }
                     }
                   ],

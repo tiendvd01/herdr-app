@@ -2,7 +2,7 @@
 // in the same panel. It only reads: nothing here writes to GitHub or sends to an agent.
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, TextView, v_virtual_list, TextareaState, Textarea } from "gpui-base";
-import { agents, panes, spaces, focused, exec, run, theme, props, settings, shared, setShared, nextCommand, window as appWindow } from "herdr";
+import { agents, panes, spaces, focused, exec, run, theme, props, settings, shared, setShared, closeOverlay, nextCommand, window as appWindow } from "herdr";
 import { MERGE_METHODS, createGh, runIdFromUrl } from "./gh.js";
 import { repoFromRemote, githubHostChecker } from "./github.js";
 import { createTracker } from "./tracker.js";
@@ -11,7 +11,7 @@ import { translator, relative, effectiveLang } from "./i18n.js";
 import { facts, steps, openThreads, logTail, flowLine, flowRows, jobSteps, issueState, issueLabel } from "./present.js";
 import { parseDiff, commentTarget, withComments } from "./diff.js";
 import { parseDuration, sanitize } from "./text.js";
-import { iconButton, backButton, chip, button, textButton, icon as uiIcon } from "./panel-ui.js";
+import { iconButton, backButton, chip, button, textButton, icon as uiIcon, dialogFrame } from "./panel-ui.js";
 
 const MOD = "pr-flow";
 const VIEW_KEY = "pr-flow.view";
@@ -94,9 +94,16 @@ async function agentList() {
 }
 
 export default class PrFlow extends View {
+  // Opened as the Pull requests dialog (mod.open): shared "pr-flow.dialog" holds the overlay id while open.
+  async close() {
+    if (this.overlay != null && shared("pr-flow.dialog") === this.overlay) setShared("pr-flow.dialog", null);
+  }
+
   init(_props, cx) {
     const p = props() ?? {};
     this.viewer = p.screen === "viewer";
+    this.overlay = this.viewer ? null : p.overlay ?? null;
+    if (this.overlay != null) setShared("pr-flow.dialog", this.overlay);
     this.system = localStorage.getItem("lang") ?? "en";
     this.useLang();
     this.handle = cx.focus_handle();
@@ -421,6 +428,11 @@ export default class PrFlow extends View {
   // One viewer pane at a time: a second file replaces what it shows.
   openViewer(target) {
     setShared(VIEW_KEY, { ...target, at: Date.now() });
+    // The viewer is a pane under this dialog: close the dialog so it shows; reopening lands on the same PR.
+    if (this.overlay != null) {
+      if (this.url) setShared("pr-flow.goto", { url: this.url, at: Date.now() });
+      closeOverlay(this.overlay);
+    }
     const all = panes();
     const open = all.find((p) => p.mod === MOD);
     if (open) { run("pane.focus", { pane: open.pane }); return; }
@@ -944,7 +956,9 @@ export default class PrFlow extends View {
   render(cx) {
     this.useLang();
     const t = theme();
-    const shell = v_flex().size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13);
+    // As a dialog (frame "none") this is the only frame: the kit's dialog frame, as Changes.
+    const base = v_flex().size_full().min_h(0);
+    const shell = (this.overlay != null ? dialogFrame(base) : base.rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border)).text_color(t.foreground).text_size(13);
     // A pane already has Herdr's own frame around it.
     if (this.viewer) return v_flex().size_full().min_h(0).overflow_hidden().bg(t.background).text_color(t.foreground).text_size(13).child(this.renderViewer(t, cx));
     this.syncSpace(cx);

@@ -2,6 +2,7 @@ import { View, div, svg, image } from "gpui-kit";
 import { h_flex } from "gpui-base";
 import { spaces, panes, focused, exec, run, openOverlay, nextCommand, theme, window, shared, layout, settings } from "herdr";
 import { activePlace } from "./space-folder.js";
+import { btn } from "./panel-ui.js";
 
 // Same place the Changes panel reads: the focused pane's folder, on its machine.
 function location() {
@@ -101,8 +102,9 @@ export default class Tabs extends View {
     const space = spaces().find(p => p.active);
     const shown = space?.tabs ?? [];
     const stop = (_e, cx) => cx.stop_propagation();
-    const button = (id, label, action) => div().id(id).size(26).flex_none().flex().items_center().justify_center().rounded(6).text_color(t.dim).hover(s => s.bg(t.hover).text_color(t.foreground))
-      .on_mouse_down("left", stop).on_click(action).child(label);
+    // Kit icon buttons; the press must not start a window drag (the bar is a drag area).
+    const button = (id, label, action, tip) => btn(id, { kind: "icon", ...(typeof label === "string" && !label.includes("/") ? { label } : { icon: label }), tip, action })
+      .on_mouse_down("left", stop);
     const item = (c, i) => {
       const program = panes().find(p => p.tab === c.id && p.program?.agent)?.program ?? panes().find(p => p.tab === c.id)?.program;
       const name = /^tb\d+$/.test(c.name) ? program?.name ?? "Terminal" : c.name;
@@ -128,8 +130,9 @@ export default class Tabs extends View {
       ? Math.max(10, (root.traffic_lights[0] + 64) / settings().zoom - (sidebar?.hidden ? 0 : sidebar?.size?.px ?? 0))
       : 10;
     const panel = find(root, "panel"), body = find(root, "panel-body");
-    const enabled = [...(shared("workspace.panels") ?? ["files", "changes"]), "issues", "graph", "prs"];
-    // Changes is a dialog now (reviewer mod), not a child of the right panel stack.
+    const enabled = [...(shared("workspace.panels") ?? ["files", "changes"]), "issues"];
+    // Changes, Git and Pull requests are dialogs (reviewer, git-graph, pr-flow), not children of the right panel stack;
+    // a space that remembered "graph" or "prs" as its panel falls back to a hidden panel.
     this.syncPanel(space, panel, body, enabled.filter(id => id !== "changes"));
     if (JSON.stringify(location()) !== this.diffKey) this.refreshDiff(cx, true);
     const d = this.diff;
@@ -140,36 +143,33 @@ export default class Tabs extends View {
       : null;
     const panelButton = (id, label, icon, extra, tip) => {
       const on = panel && !panel.hidden && body?.active === id;
-      return h_flex().id(`panel-${id}`).h(26).px(extra ? 7 : 0).min_w(26).gap(5).flex_none().items_center().justify_center().rounded(6)
-        .text_size(12).bg(on ? t.selected : t.chrome).text_color(on ? t.foreground : t.muted)
-        .hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
-        .on_click(() => {
-          if (on) run("layout.hide", { id: "panel" });
-          else { run("layout.select", { stack: "panel-body", child: id }); run("layout.show", { id: "panel" }); }
-        }).tooltip(label)
-        .child(svg(icon).size(14)).when(Boolean(extra), el => el.child(extra));
+      return btn(`panel-${id}`, { kind: "icon", icon, extra, on, tip: label, action: () => {
+        if (on) run("layout.hide", { id: "panel" });
+        else { run("layout.select", { stack: "panel-body", child: id }); run("layout.show", { id: "panel" }); }
+      } }).on_mouse_down("left", stop);
     };
     // Changes opens the reviewer as a dialog; shared "reviewer.dialog" holds its overlay id while open.
     const changesOpen = shared("reviewer.dialog") != null;
-    const changesButton = h_flex().id("panel-changes").h(26).px(counts ? 7 : 0).min_w(26).gap(5).flex_none().items_center().justify_center().rounded(6)
-      .text_size(12).bg(changesOpen ? t.selected : t.chrome).text_color(changesOpen ? t.foreground : t.muted)
-      .hover(s => s.bg(t.hover)).on_mouse_down("left", stop)
-      .on_click(() => run("mod.open", { name: "reviewer" })).tooltip("Changes  ⌘⇧G")
-      .child(svg("mods/changes/changes.svg").size(14)).when(Boolean(counts), el => el.child(counts));
+    const changesButton = btn("panel-changes", { kind: "icon", icon: "mods/changes/changes.svg", extra: counts, on: changesOpen, tip: "Changes  ⌘⇧G",
+      action: () => run("mod.open", { name: "reviewer" }) }).on_mouse_down("left", stop);
+    // A mod opened as a dialog by mod.open (again: closes it); shared "<mod>.dialog" holds its overlay id while open.
+    const dialogButton = (id, mod, label, icon) =>
+      btn(`panel-${id}`, { kind: "icon", icon, on: shared(`${mod}.dialog`) != null, tip: label, action: () => run("mod.open", { name: mod }) })
+        .on_mouse_down("left", stop);
     return h_flex().size_full().min_w(0).px(10).pl(lightsPadding).gap(3).items_center().bg(t.chrome).border_b(1).border_color(t.border)
       .id("tab-bar").on_size_change(size => { this.barH = size.height; })
       .on_mouse_up("left", () => { this.pressed = null; })
       .on_scroll_wheel(e => { if (Math.abs(e.delta.y) >= 1) run(e.delta.y > 0 ? "tab.prev" : "tab.next"); })
       .child(h_flex().id("tab-scroll").flex_1().min_w(0).h_full().items_center().gap(3).overflow_x_scrollbar().children(shown.map(item)))
-      .child(button("tab-new", "+", () => this.openNewMenu()))
+      .child(button("tab-new", "+", () => this.openNewMenu(), "New tab"))
       .child(h_flex().id("tab-trailing").flex_none().gap(3).items_center().on_size_change(size => { this.trailW = size.width; })
       .when(enabled.includes("files"), el => el.child(panelButton("files", "Files", "mods/files/file.svg", null, "browse the space's folder")))
       .when(enabled.includes("changes"), el => el.child(changesButton))
       .child(panelButton("issues", "Issues", "mods/issues/issue.svg", null, "GitHub issues of this repo"))
-      .child(panelButton("graph", "Git", "mods/git-graph/icons/graph.svg", null, "commit graph of this repo"))
-      .child(panelButton("prs", "Pull requests", "mods/my-tabs/pull-request.svg", null, "open pull requests of your agents' branches"))
-      .when(w?.buttons, el => el.child(button("minimize", w.platform === "windows" ? svg("mods/my-tabs/win-min.svg").size(16) : "−", () => run("window.minimize")))
-        .child(button("maximize", w.platform === "windows" ? svg(`mods/my-tabs/${w.maximized ? "win-restore" : "win-max"}.svg`).size(16) : "□", () => run("window.maximize")))
-        .child(button("close-window", w.platform === "windows" ? svg("mods/my-tabs/win-close.svg").size(16) : svg("mods/pane/close.svg").size(13), () => run("window.close")))));
+      .child(dialogButton("graph", "git-graph", "Git", "mods/git-graph/icons/graph.svg"))
+      .child(dialogButton("prs", "pr-flow", "Pull requests", "mods/my-tabs/pull-request.svg"))
+      .when(w?.buttons, el => el.child(button("minimize", w.platform === "windows" ? "mods/my-tabs/win-min.svg" : "−", () => run("window.minimize"), "Minimize"))
+        .child(button("maximize", w.platform === "windows" ? `mods/my-tabs/${w.maximized ? "win-restore" : "win-max"}.svg` : "□", () => run("window.maximize"), "Maximize"))
+        .child(button("close-window", w.platform === "windows" ? "mods/my-tabs/win-close.svg" : "mods/pane/close.svg", () => run("window.close"), "Close window"))));
   }
 }

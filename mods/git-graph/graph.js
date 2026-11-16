@@ -140,6 +140,9 @@ const tagsShown = () => shared("git-graph.tags") === true;
 export class Graph {
   init(cx) {
     this.folder = props()?.folder ?? null;
+    // Opened as the Git dialog (mod.open): shared "git-graph.dialog" holds the overlay id while open.
+    this.overlay = props()?.overlay ?? null;
+    if (this.overlay != null) setShared("git-graph.dialog", this.overlay);
     // A scrollbar finds its list by name: each copy (panel, pane) needs its own.
     this.listId = `graph-rows-${Math.random().toString(36).slice(2)}`;
     this.diffId = `${this.listId}-diff`;
@@ -912,7 +915,9 @@ export class Graph {
     const t = theme(), mono = settings().font_family ?? "JetBrains Mono", ready = this.state === "ready";
     const savedDetail = Number(shared("git-graph.details")) || 0;
     if (!this.drag && savedDetail !== this.seenDetail) { this.seenDetail = savedDetail; this.detail = savedDetail; }
-    return v_flex().id("git-graph").size_full().min_h(0).rounded(paneFrame(layout())?.radius ?? 0).overflow_hidden().bg(t.background).border_1().border_color(t.border)
+    // As a dialog (frame "none") this is the only frame: same radius, border and shadow as Changes.
+    return v_flex().id("git-graph").size_full().min_h(0).rounded(this.overlay != null ? 10 : paneFrame(layout())?.radius ?? 0).overflow_hidden().bg(t.background).border_1().border_color(t.border)
+      .when(this.overlay != null, (e) => e.shadow_lg())
       .text_color(t.foreground).text_size(12.5).track_focus(this.handle)
       .on_mouse_move((e, cx) => this.moveDrag(e, cx))
       .on_mouse_up("left", (_e, cx) => this.endDrag(cx))

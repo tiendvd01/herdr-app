@@ -1,1 +1,10 @@
-{ "place": "right", "size": 340, "title": "Pull requests" }
+{
+  "place": "none",
+  "title": "Pull requests",
+  "overlay": {
+    "kind": "dialog",
+    "width": 0.75,
+    "height": 0.8,
+    "frame": "none"
+  }
+}
