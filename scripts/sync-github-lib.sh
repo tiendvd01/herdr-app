@@ -41,3 +41,5 @@ sync lib/vendor/highlight.min.js mods/issues/hljs.js mods/file-icons/hljs.js mod
 sync lib/diagram-viewer.js mods/issues/diagram-viewer.js mods/file-icons/diagram-viewer.js mods/mermaid-board/diagram-viewer.js
 # Per-project Claude skills (library scan, skills.json, generated --plugin-dir bundle): Project Settings and the + menu.
 sync lib/project-skills.js mods/project-settings/project-skills.js mods/my-new-menu/project-skills.js
+# Listening ports per worktree (Project Settings › Ports); the herdr-ports MCP server imports lib/ports.js directly.
+sync lib/ports.js mods/project-settings/ports.js

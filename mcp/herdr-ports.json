@@ -1,0 +1,4 @@
+{
+  "command": "sh",
+  "args": ["-c", "exec node \"$HOME/.config/herdr-app/mcp-servers/herdr-ports/server.mjs\""]
+}

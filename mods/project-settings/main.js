@@ -5,7 +5,8 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, EditorState, Editor, InputState, Input } from "gpui-base";
 import { theme, spaces, exec, readTextFile, writeTextFile, home, settings, run, terminals, panes, shared } from "herdr";
 import { spaceFolder } from "./space-folder.js";
-import { projectOf, scanLibrary, readSelection, writeSelection, syncBundle, pruneLegacy, estimate, skillsDir } from "./project-skills.js";
+import { loadPorts as loadPortsOf, shortHome } from "./ports.js";
+import { projectOf, scanLibrary, readSelection, writeSelection, syncBundle, pruneLegacy, estimate, skillsDir, mcpDir } from "./project-skills.js";
 
 const TEMPLATE = `#!/bin/sh
 # Runs once in each new worktree of this project (cwd = the worktree).
@@ -32,67 +33,26 @@ async function repoOf(folder) {
   return { ...p, file: `${p.dir}/post-create.sh`, promptFile: `${p.dir}/summary-prompt.md`, legacy: `${p.main}/.herdr/post-create.sh` };
 }
 
-// Listening TCP ports per worktree of a repo: lsof lists the listeners, the listener's cwd picks the worktree.
+// Listening TCP ports per worktree of a repo: the shared reader in lib/ports.js (also used by the
+// herdr-ports MCP server), plus the Terminal button: a listener shares its controlling tty with that
+// app terminal's foreground process.
 async function loadPorts(r) {
-  const wl = await exec("git", ["worktree", "list", "--porcelain"], { cwd: r.main });
-  const trees = [];
-  for (const blk of wl.stdout.split("\n\n")) {
-    const path = blk.match(/^worktree (.+)$/m)?.[1];
-    if (!path) continue;
-    const br = blk.match(/^branch refs\/heads\/(.+)$/m)?.[1];
-    trees.push({ path, branch: br ?? "(detached)", main: path === r.main, items: [] });
-  }
-  const l = await exec("lsof", ["-nP", "-iTCP", "-sTCP:LISTEN", "-Fpcn"]);
-  const ls = [];
-  let cur = null;
-  for (const line of l.stdout.split("\n")) {
-    const k = line[0], v = line.slice(1);
-    if (k === "p") cur = { pid: +v, cmd: "", port: 0 };
-    else if (k === "c" && cur) cur.cmd = v;
-    else if (k === "n" && cur) { const port = +v.slice(v.lastIndexOf(":") + 1); if (port) ls.push({ ...cur, port }); }
-  }
-  const pids = [...new Set(ls.map((x) => x.pid))];
-  const cwd = new Map();
-  if (pids.length) {
-    const c = await exec("lsof", ["-a", "-d", "cwd", "-p", pids.join(","), "-Fpn"]);
-    let pid = 0;
-    for (const line of c.stdout.split("\n")) {
-      if (line[0] === "p") pid = +line.slice(1);
-      else if (line[0] === "n") cwd.set(pid, line.slice(1));
-    }
-  }
-  const args = new Map();
-  if (pids.length) {
-    const a = await exec("ps", ["-o", "pid=,args=", "-p", pids.join(",")]);
-    for (const line of a.stdout.split("\n")) {
-      const m = line.trim().match(/^(\d+)\s+(.*)$/);
-      if (m) args.set(+m[1], m[2].replace(/\/Users\/[^/\s]+/g, "~"));
-    }
-  }
-  // Which terminal runs it: the listener shares a controlling tty with that terminal's foreground process.
-  const tty = new Map();
-  const pt = await exec("ps", ["-axo", "pid=,tty="]);
-  for (const line of pt.stdout.split("\n")) {
-    const m = line.trim().match(/^(\d+)\s+(\S+)$/);
-    if (m && m[2] !== "??") tty.set(+m[1], m[2]);
-  }
+  const trees = await loadPortsOf(r.main, exec);
+  const fg = terminals().map((tm) => [tm.foreground?.pid, tm.address]).filter(([p]) => p);
   const byTty = new Map();
-  for (const tm of terminals()) {
-    const p = tm.foreground?.pid;
-    if (p && tty.has(p)) byTty.set(tty.get(p), tm.address);
+  if (fg.length) {
+    const t = await exec("ps", ["-o", "pid=,tty=", "-p", fg.map(([p]) => p).join(",")]);
+    const addr = new Map(fg);
+    for (const line of (t.code === 0 ? t.stdout : "").split("\n")) {
+      const m = line.trim().match(/^(\d+)\s+(\S+)$/);
+      if (m && m[2] !== "??") byTty.set(m[2], addr.get(+m[1]));
+    }
   }
-  const seen = new Set();
-  for (const x of ls) {
-    const dir = cwd.get(x.pid);
-    const key = `${x.pid}:${x.port}`;
-    if (!dir || seen.has(key)) continue;
-    const t = trees.filter((w) => dir === w.path || dir.startsWith(w.path + "/")).sort((a, b) => b.path.length - a.path.length)[0];
-    if (!t) continue;
-    seen.add(key);
-    t.items.push({ ...x, terminal: byTty.get(tty.get(x.pid)) ?? null, args: args.get(x.pid) ?? x.cmd, dir, rel: dir === t.path ? "./" : dir.slice(t.path.length + 1) });
+  for (const w of trees) for (const x of w.items) {
+    x.args = shortHome(x.args);
+    x.terminal = (x.tty && byTty.get(x.tty)) ?? null;
   }
-  for (const t of trees) t.items.sort((a, b) => a.port - b.port);
-  return trees.sort((a, b) => Number(b.main) - Number(a.main) || a.branch.localeCompare(b.branch));
+  return trees;
 }
 
 export default class ProjectSettings extends View {
@@ -304,7 +264,7 @@ export default class ProjectSettings extends View {
         .child(v_flex().flex_1().min_w(0).gap(4)
           .child(div().font_semibold().child("Skills"))
           .child(div().text_color(t.muted).whitespace_normal().child("Skills and MCP servers turned on here load only in Claude sessions started for this project from the + menu (Claude · N skills). Library:"))
-          .child(div().text_size(11.5).text_color(t.dim).truncate().child(`${skillsDir().replace(home(), "~")}  ·  ${skillsDir().replace(home(), "~").replace(/skills$/, "mcp")}`)))
+          .child(div().text_size(11.5).text_color(t.dim).truncate().child(`${skillsDir().replace(home(), "~")}  ·  ${mcpDir().replace(home(), "~")}`)))
         .child(btn("sk-open", "Open folder", () => exec("code", [skillsDir()]).then((r) => { if (r.code !== 0) exec("open", [skillsDir()]); }).catch(() => exec("open", [skillsDir()]))))
         .child(btn("sk-refresh", this.skBusy ? "Refreshing…" : "Refresh", (_e, cx) => this.refreshSkills(cx))))
       .child(h_flex().gap(16).text_size(12)
@@ -314,7 +274,7 @@ export default class ProjectSettings extends View {
       .child(Input.new(this.search).h(30).px(10).items_center().rounded(6).border(1).border_color(t.border).bg(t.background).text_color(t.foreground))
       .child(v_flex().id("sk-list").flex_1().min_h(0).overflow_y_scrollbar().gap(8)
         .when(!lib.skills.length, (el) => el.child(v_flex().gap(8).p(12).rounded(8).border(1).border_color(t.border)
-          .child(div().text_color(t.muted).whitespace_normal().child(`Put skill folders in ${skillsDir().replace(home(), "~")}/ (each with SKILL.md), and MCP servers as one JSON file each in ${skillsDir().replace(home(), "~").replace(/skills$/, "mcp")}/ (secrets as \${VAR}).`))))
+          .child(div().text_color(t.muted).whitespace_normal().child(`Put skill folders in ${skillsDir().replace(home(), "~")}/ (each with SKILL.md), and MCP servers as one JSON file each in ${mcpDir().replace(home(), "~")}/ (secrets as \${VAR}).`))))
         .when(skills.length > 0, (el) => el.child(section("SKILLS", skills, (x) => row("skills", x))))
         .when(mcp.length > 0, (el) => el.child(section("MCP SERVERS", mcp, (x) => row("mcp", x))))
         .when(global.length > 0, (el) => el.child(section("GLOBAL · read-only, loaded everywhere (plus installed plugins)", global, (x) =>

@@ -2,19 +2,20 @@
 // Per-project skills for Claude sessions (spec 012).
 // Single source, copied into mods/project-settings and mods/my-new-menu by scripts/sync-github-lib.sh.
 //
-// Library (tracked, filled by hand): ~/.config/herdr-app/skills/<name>/SKILL.md and mcp/<name>.json.
+// Library (tracked): ~/.config/herdr-app/.agents/skills/<name>/SKILL.md (hand-made, or installed with
+// `npx skills add <repo> -a universal` from the Herdr home folder; spec 015) and mcp/<name>.json.
 // Per project (gitignored): projects/<slug>/skills.json (the selection, source of truth) and
 // projects/<slug>/claude-plugin/ (one shared plugin: symlinks into the library + .mcp.json), kept in
 // sync in place on every switch and launch, passed to Claude as `claude --plugin-dir <that folder>`.
 //
-// Invariant: nothing here ever writes under skills/, mcp/ or ~/.claude/. Only symlinks inside
+// Invariant: nothing here ever writes under .agents/skills/, mcp/ or ~/.claude/. Only symlinks inside
 // claude-plugin/skills/ and unused feature-012 folders under claude-sessions/ are ever removed.
 import { exec, readTextFile, writeTextFile, home } from "herdr";
 
 const NAME = /^[A-Za-z0-9._-]+$/;
 
 export const appDir = () => `${home()}/.config/herdr-app`;
-export const skillsDir = () => `${appDir()}/skills`;
+export const skillsDir = () => `${appDir()}/.agents/skills`;
 export const mcpDir = () => `${appDir()}/mcp`;
 export const globalSkillsDir = () => `${home()}/.claude/skills`;
 
