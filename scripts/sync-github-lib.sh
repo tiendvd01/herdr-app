@@ -25,7 +25,8 @@ sync lib/space-folder.js \
   mods/open-file/space-folder.js \
   mods/file-icons/space-folder.js \
   mods/status-usage/space-folder.js \
-  mods/inbox/space-folder.js
+  mods/inbox/space-folder.js \
+  mods/project-settings/space-folder.js
 sync lib/gh-account.js mods/pr-flow/gh-account.js mods/better-sidebar/git/gh-account.js mods/issues/gh-account.js mods/inbox/gh-account.js
 # PR reading (gh calls, status facts): pr-flow's, also used by inbox.
 sync lib/pr-gh.js mods/pr-flow/gh.js mods/inbox/gh.js

@@ -4,6 +4,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, EditorState, Editor, InputState, Input } from "gpui-base";
 import { theme, spaces, exec, readTextFile, writeTextFile, home, settings, run, terminals, panes, shared } from "herdr";
+import { spaceFolder } from "./space-folder.js";
 import { projectOf, scanLibrary, readSelection, writeSelection, syncBundle, pruneLegacy, estimate, skillsDir } from "./project-skills.js";
 
 const TEMPLATE = `#!/bin/sh
@@ -170,19 +171,35 @@ export default class ProjectSettings extends View {
           .child(link(`kp-${x.pid}-${x.port}`, "Stop", (_e, cx) => { exec("kill", [String(x.pid)]); cx.notify(); }, true))))));
   }
 
-  // Projects of the open spaces; the active space's project is picked first.
+  // Folders that name a project in a local space: where its terminals really are (they follow `cd`).
+  // Herdr's space.folder is only where the space's first terminal started and goes stale, so it is
+  // used only through spaceFolder() when the space has no terminal yet.
+  spaceFolders(s, list) {
+    const tabs = new Set((s.tabs ?? []).map((t) => t.id));
+    const live = list.filter((p) => tabs.has(p.tab) && p.cwd).map((p) => p.cwd);
+    return [...new Set([spaceFolder(s, list), ...live].filter(Boolean))];
+  }
+
+  // Projects of the open spaces; the active space's project (its focused terminal's) is picked first.
   scan(cx) {
-    const key = JSON.stringify(spaces().map((s) => [s.id, s.folder, s.active]));
+    const list = panes();
+    const local = spaces().filter((x) => !x.machine);
+    const key = JSON.stringify(local.map((s) => [s.id, s.active, this.spaceFolders(s, list)]));
     if (key === this.known) return;
     this.known = key;
     cx.spawn(async (cx) => {
-      const seen = new Map();
+      const seen = new Map(), byFolder = new Map();
+      const repo = async (f) => {
+        if (!byFolder.has(f)) byFolder.set(f, await repoOf(f).catch(() => null));
+        return byFolder.get(f);
+      };
       let current = null;
-      for (const s of spaces().filter((x) => !x.machine && x.folder)) {
-        const r = await repoOf(s.folder).catch(() => null);
-        if (!r) continue;
-        if (!seen.has(r.main)) seen.set(r.main, r);
-        if (s.active) current = r.main;
+      for (const s of local) {
+        for (const f of this.spaceFolders(s, list)) {
+          const r = await repo(f);
+          if (r && !seen.has(r.main)) seen.set(r.main, r);
+        }
+        if (s.active) current = (await repo(spaceFolder(s, list) ?? ""))?.main ?? null;
       }
       this.repos = [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
       this.loaded = true;
