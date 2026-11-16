@@ -9,7 +9,7 @@ import { spaceFolder } from "./space-folder.js";
 // A space's folder (space-folder.js).
 const place = (s) => spaceFolder(s);
 
-// Checkouts go to <ROOT>/<repo>/<branch, slashes as dashes>.
+// Checkouts go to <ROOT>/<repo>/<repo>.<branch, slashes as dashes>.
 const ROOT = (home) => `${home}/.herdr/worktrees`;
 // Home as ~ (git says C:/Users/x where Windows says C:\Users\x).
 const tilde = (path, userHome) => {
@@ -213,7 +213,7 @@ export default class Worktree extends View {
     if (!pick) return "Pick a branch or type a new name.";
     if (this.used.has(pick.name)) return `${pick.name} is already checked out in another worktree.`;
     const branch = pick.name;
-    const path = `${ROOT(this.userHome)}/${this.repo.name}/${slug(branch)}`;
+    const path = `${ROOT(this.userHome)}/${this.repo.name}/${this.repo.name}.${slug(branch)}`;
     const exists = !pick.create && !pick.remote || (await git(this.repo.main, ["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], this.on)).ok;
     const add = exists ? ["worktree", "add", path, branch] : pick.remote ? ["worktree", "add", "--track", "-b", branch, path, pick.ref] : ["worktree", "add", "-b", branch, path, "HEAD"];
     const r = await git(this.repo.top, add, this.on);
