@@ -146,7 +146,6 @@ export default class PrFlow extends View {
     this.view = { state: "open", scope: "mine" };
     try { this.states = JSON.parse(localStorage.getItem("spaces") ?? "{}") ?? {}; } catch { this.states = {}; }
     this.cur = undefined; // the space whose state is loaded
-    this.counts = new Map(); // repo|state|scope -> { n, at, busy }, from GitHub's search count
     this.spaceRepos = new Map(); // on:folder -> repo, null (none), or "pending"
     this.tracker.setView(this.view);
     this.logs = new Map(); // run id -> { name, runId, repo, tail, full, failed }
@@ -344,6 +343,9 @@ export default class PrFlow extends View {
 
   openPr(url, cx) {
     this.url = url;
+    this.tracker.focus(url);
+    // A row from a list page lacks files, body and thread comments: fetch it in full.
+    if (this.tracker.isPartial(url)) cx.spawn(async (cx) => { await this.tracker.refresh(url); this.syncLog(cx); cx.notify(); });
     this.save();
     this.handle.focus();
     this.syncLog(cx);
@@ -490,22 +492,20 @@ export default class PrFlow extends View {
     this.save();
   }
 
-  // The chip numbers come from a search count per state, fetched ahead (not from loaded cards), at most
-  // once a minute per repo/state/scope. Called from render: it only spawns, and notifies when done.
+  // The chip numbers are the tracker's search counts (the list asks its own view's count first, spec 019),
+  // at most once a minute per repo/state/scope. Called from render: it only spawns, and notifies when done.
   count(state, cx) {
-    const repo = this.spaceRepo();
-    if (!repo || repo === "pending") return null;
-    const key = `${repo}|${state}|${this.view.scope}`, c = this.counts.get(key);
-    if (!c || (!c.busy && Date.now() - c.at > 60_000)) {
-      const e = { n: c?.n ?? null, at: Date.now(), busy: true };
-      this.counts.set(key, e);
-      cx.spawn(async (cx) => {
-        try { e.n = await this.gh.count(repo, state, this.view.scope); } catch { /* keep the old number */ }
-        e.busy = false; e.at = Date.now();
-        cx.notify();
-      });
-    }
-    return this.counts.get(key).n;
+    if (this.tracker.countStale(state)) cx.spawn(async (cx) => { await this.tracker.ensureCount(state); cx.notify(); });
+    return this.tracker.total(state);
+  }
+
+  // The tracker lists the space's repo in the chosen view; the opened PR is polled. Called from render
+  // after syncSpace: it never notifies, the load is spawned.
+  syncView(cx) {
+    const r = this.spaceRepo(), repo = r && r !== "pending" ? r : null, now = this.tracker.viewOf();
+    if (now.repo !== repo || now.state !== this.view.state || now.scope !== this.view.scope) this.tracker.setView({ ...this.view, repo });
+    this.tracker.focus(this.url);
+    if (this.tracker.viewStale()) cx.spawn(async (cx) => { await this.tracker.loadView(); cx.notify(); });
   }
 
   viewBar(t, cx) {
@@ -533,13 +533,14 @@ export default class PrFlow extends View {
   }
 
   header(count, t) {
-    const tr = this.t;
+    const tr = this.t, total = this.tracker.viewState().total;
+    const label = total != null && total > count ? `${count} / ${total}` : String(count);
     return h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
       .child(div().font_semibold().child(tr("title")))
-      .when(count > 0, (e) => e.child(div().px(6).rounded(5).bg(t.raised).text_size(11).text_color(t.muted).child(String(count))))
+      .when(count > 0, (e) => e.child(div().px(6).rounded(5).bg(t.raised).text_size(11).text_color(t.muted).child(label)))
       .child(div().flex_1().min_w(0).truncate().text_size(11.5).text_color(t.dim).child((() => { const r = this.spaceRepo(); return r && r !== "pending" ? r : ""; })()))
       .child(iconButton("settings", "settings", tr("settings"), (_e, cx) => { this.settingsOpen = true; cx.notify(); }))
-      .child(this.refreshing || this.filtered().some((c) => this.pending(c))
+      .child(this.refreshing || this.tracker.viewState().loading || this.filtered().some((c) => this.pending(c))
         ? iconButton("refresh", "spinner", "Refreshing…", (_e, cx) => this.refreshNow(cx))
         : iconButton("refresh", "refresh", "Refresh", (_e, cx) => this.refreshNow(cx)));
   }
@@ -552,11 +553,11 @@ export default class PrFlow extends View {
 
   // Scrolled to the end of the list: ask GitHub for the next page of the shown view.
   loadMore(cx) {
-    if (this.loadingMore || !this.tracker.loadMore()) return;
+    if (this.loadingMore || !this.tracker.hasMore()) return;
     this.loadingMore = true;
     cx.notify();
     cx.spawn(async (cx) => {
-      try { await this.tracker.tick(await agentList()); } finally { this.loadingMore = false; }
+      try { await this.tracker.loadMore(); } finally { this.loadingMore = false; }
       cx.notify();
     });
   }
@@ -591,15 +592,17 @@ export default class PrFlow extends View {
   }
 
   list(t, cx) {
-    const tr = this.t, all = this.filtered(), cards = this.shown();
-    if (!cards.length && all.some((c) => this.pending(c))) {
+    const tr = this.t, all = this.filtered(), cards = this.shown(), vs = this.tracker.viewState(), repo = this.spaceRepo();
+    // Count first, then the first page: until both are in, one loading state.
+    const firstLoad = Boolean(repo) && repo !== "pending" && (vs.loading || !vs.loaded) && vs.total !== 0;
+    if (!cards.length && (all.some((c) => this.pending(c)) || firstLoad)) {
       return v_flex().size_full().child(this.header(0, t)).child(this.viewBar(t, cx))
         .child(v_flex().flex_1().items_center().justify_center().gap(8)
           .child(icon("spinner", 18, t.dim).spin(900))
           .child(div().text_size(12).text_color(t.dim).child(tr("loading"))));
     }
     if (!cards.length) {
-      const noGh = !this.ghReady, repo = this.spaceRepo();
+      const noGh = !this.ghReady;
       const body = noGh ? tr("gh_body") : repo === "pending" ? "…" : !repo ? "This space's folder is not a GitHub repo." : `${repo} · ${tr("empty_body")}`;
       return v_flex().size_full().child(this.header(0, t)).child(this.viewBar(t, cx))
         .child(v_flex().flex_1().items_center().justify_center().gap(6).px(24)
@@ -611,7 +614,7 @@ export default class PrFlow extends View {
     const kept = cards.findIndex((c) => c.url === this.selectedUrl);
     this.selected = kept >= 0 ? kept : Math.min(this.selected, cards.length - 1);
     this.selectedUrl = cards[this.selected].url;
-    const error = this.tracker.lastError();
+    const error = vs.error || this.tracker.lastError();
     return v_flex().size_full().child(this.header(cards.length, t)).child(this.viewBar(t, cx))
       .child(this.prList(cards, t))
       .when(Boolean(error), (e) => e.child(div().flex_none().px(14).py(6).border_t(1).border_color(t.border).truncate().text_size(11).text_color(t.ansi1).child(sanitize(error))));
@@ -963,6 +966,7 @@ export default class PrFlow extends View {
     if (this.viewer) return v_flex().size_full().min_h(0).overflow_hidden().bg(t.background).text_color(t.foreground).text_size(13).child(this.renderViewer(t, cx));
     this.syncSpace(cx);
     this.takeGoto(cx);
+    this.syncView(cx);
     const card = this.url ? this.current() : null;
     if (this.url && !card && this.tracker.cards().length) this.url = null; // it closed while open
     return shell.id("pr-flow").track_focus(this.handle).on_key_down((e, cx) => this.onKey(e, cx)).on_mouse_down("left", () => this.handle.focus())

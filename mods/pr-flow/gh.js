@@ -35,6 +35,33 @@ export function runIdFromUrl(url) {
   return m ? m[1] : null;
 }
 
+// The search words of one list view: a repo's PRs in one state, by any of `logins` (none: everyone).
+export function viewQuery(repo, state = 'open', logins = null) {
+  return [`repo:${repo}`, 'is:pr', state === 'merged' ? 'is:merged' : 'is:open', ...(logins ?? []).map((l) => `author:${l}`)].join(' ');
+}
+
+// One list page with what a row shows, so a page draws from one call (spec 019).
+const PAGE_QUERY = `query($q:String!,$first:Int!,$after:String){search(query:$q,type:ISSUE,first:$first,after:$after){issueCount pageInfo{endCursor hasNextPage} nodes{... on PullRequest{
+  number title url state isDraft headRefName headRefOid baseRefName reviewDecision mergeable mergeStateStatus additions deletions changedFiles createdAt mergedAt closedAt updatedAt
+  author{login} mergeCommit{oid}
+  latestReviews(first:20){nodes{author{login} state submittedAt}}
+  commits(last:1){nodes{commit{committedDate statusCheckRollup{contexts(first:50){nodes{__typename ... on CheckRun{name status conclusion startedAt completedAt detailsUrl} ... on StatusContext{context state targetUrl}}}}}}}
+  reviewThreads(first:100){nodes{isResolved isOutdated}}
+  closingIssuesReferences(first:10){nodes{number title state stateReason url repository{nameWithOwner}}}
+}}}}`;
+
+function pageNode(n) {
+  const commit = n.commits?.nodes?.[0]?.commit;
+  const { commits, latestReviews, reviewThreads, closingIssuesReferences, ...pr } = n;
+  return {
+    url: n.url,
+    pr: { ...pr, body: '', latestReviews: latestReviews?.nodes ?? [], statusCheckRollup: commit?.statusCheckRollup?.contexts?.nodes ?? [] },
+    threads: reviewThreads?.nodes ?? [],
+    issues: closingIssuesReferences?.nodes ?? [],
+    headCommittedAt: commit?.committedDate ?? null,
+  };
+}
+
 // Each command runs as the gh account of the repo it names (gh-account.js); the rest as the active one.
 export function createGh(exec) {
   const accounts = ghAccounts(exec);
@@ -44,6 +71,12 @@ export function createGh(exec) {
     return String(r.stdout);
   };
   const json = async (args) => JSON.parse(await run(args));
+  // As the account of `repo` (the args may not name it, e.g. a search).
+  const json2 = async (repo, args) => {
+    const r = await accounts.gh(repo, args);
+    if (r.code !== 0) throw new Error(String(r.stderr).trim() || `gh ${args[0]} failed`);
+    return JSON.parse(String(r.stdout));
+  };
   return {
     // Open PRs only: an agent sitting on `main` would otherwise pick up an old merged PR.
     discover: async (repo, branch) => (await json(['pr', 'list', '-R', repo, '--head', branch, '--state', 'open', '--limit', '1', '--json', 'url']))[0]?.url ?? null,
@@ -66,24 +99,19 @@ export function createGh(exec) {
     },
     // Any author's PRs of one repo in one state.
     listRepo: async (repo, state = 'open', limit = 20) => (await json(['pr', 'list', '-R', repo, '--state', state, '--limit', String(limit), '--json', 'url'])).map((p) => p.url),
-    // How many PRs of one repo in one state ('open' | 'merged'), yours (all logins) or everyone's: GitHub's
-    // search count, one call each, no list fetched.
-    count: async (repo, state = 'open', scope = 'all') => {
-      const base = `repo:${repo} is:pr ${state === 'merged' ? 'is:merged' : 'is:open'}`;
-      let authors = [null];
-      if (scope === 'mine') {
-        const { logins } = await accounts.accounts();
-        authors = await Promise.all((logins.length ? logins : [null]).map(async (login) => {
-          const r = await accounts.as(login, ['api', 'user', '-q', '.login']);
-          return r.code === 0 ? String(r.stdout).trim() : null;
-        }));
-        authors = authors.filter(Boolean);
-      }
-      const counts = await Promise.all(authors.map(async (a) => {
-        const q = a ? `${base} author:${a}` : base;
-        return (await json(['api', `search/issues?q=${encodeURIComponent(q)}&per_page=1`])).total_count ?? 0;
-      }));
-      return counts.reduce((x, y) => x + y, 0);
+    // How many PRs of one repo in one state ('open' | 'merged'), by any of `logins` (null: everyone):
+    // GitHub's search count, one call, no list fetched. Repeated author: qualifiers are OR'd.
+    count: async (repo, state = 'open', logins = null) =>
+      (await json2(repo, ['api', `search/issues?q=${encodeURIComponent(viewQuery(repo, state, logins))}&per_page=1`])).total_count ?? 0,
+    // One page of the same view, newest activity first, by cursor: { total, cursor, next, prs }.
+    // Each of prs is { url, pr, threads, issues, headCommittedAt }; pr has fetchPr's shape minus files and body.
+    page: async (repo, state = 'open', logins = null, after = null, first = 20) => {
+      const args = ['api', 'graphql', '-f', `query=${PAGE_QUERY}`, '-f', `q=${viewQuery(repo, state, logins)} sort:updated-desc`, '-F', `first=${first}`];
+      if (after) args.push('-f', `after=${after}`);
+      const data = await json2(repo, args);
+      if (data.errors?.length) throw new Error(data.errors[0].message);
+      const s = data.data.search;
+      return { total: s.issueCount, cursor: s.pageInfo.endCursor, next: s.pageInfo.hasNextPage, prs: s.nodes.filter((n) => n?.url).map(pageNode) };
     },
     // Every logged-in account's GitHub login (what a PR's author shows; may differ from gh's own name for it).
     me: async () => {

@@ -30,7 +30,7 @@ export default class NewMenu extends View {
       try { this.agents = await knownAgents({ on: spaces().find(s => s.active)?.machine }); }
       catch { this.failed = true; }
       // A digit typed before the list arrived (cmd-n then 1 quickly) still starts that agent.
-      if (this.pending) this.launch(this.pending);
+      if (this.pending) this.launch(this.pending, cx);
       // Per-project skills (Project Settings > Skills): how many valid items this folder's project has on.
       const space = spaces().find(s => s.active);
       if (space && !space.machine && this.claude()) {
@@ -45,13 +45,13 @@ export default class NewMenu extends View {
         } catch { this.project = null; }
       }
       // my-tabs sizes the next popup from this count, so the frame fits the rows exactly.
-      const rows = this.choices().length + (this.project ? 1 : 0);
+      const rows = this.choices().length;
       if (rows && shared("new-menu.rows") !== rows) setShared("new-menu.rows", rows);
       cx.notify();
     });
   }
   claude() { return this.agents.find(a => a.key === "claude" && a.installed); }
-  // "Claude · N skills": rebuild the project's bundle, then start Claude with --plugin-dir. The popup stays
+  // Claude with the project's skills on: rebuild the project's bundle, then start Claude with --plugin-dir. The popup stays
   // open until the argv is ready (closing it first would drop this view mid-way).
   launchSkills(cx) {
     const claude = this.claude(), project = this.project;
@@ -74,20 +74,17 @@ export default class NewMenu extends View {
       run("tab.new", { name: claude.name, space: space?.id, folder: spaceFolder(space) ?? undefined, argv: res.argv });
     });
   }
-  openSkillsTab() {
-    const space = spaces().find(s => s.active);
-    setShared("project-settings.tab", { tab: "skills", folder: spaceFolder(space) ?? null, at: Date.now() });
-    // Project Settings is a dialog: open it unless it is open already (mod.open again would close it).
-    if (shared("project-settings.dialog") == null) run("mod.open", { name: "project-settings" });
-  }
+  // One Claude row: it starts with --plugin-dir when the project has skills or MCP on, plain otherwise.
+  withSkills(a) { return a.key === "claude" && Boolean(this.project) && ((this.skillCount ?? 0) + (this.mcpCount ?? 0)) > 0; }
   choices() {
     const installed = this.agents.filter(a => a.installed);
     return [...installed, ...this.agents.filter(a => !a.installed).slice(0, 2)];
   }
-  launch(n) {
+  launch(n, cx) {
     this.pending = null;
     const agent = this.agents.filter(a => a.installed)[n - 1];
     if (!agent) return;
+    if (cx && this.withSkills(agent)) return this.launchSkills(cx);
     const space = spaces().find(s => s.active);
     closeOverlay(props().overlay);
     run("tab.new", { name: agent.name, space: space?.id, folder: spaceFolder(space) ?? undefined, argv: agent.run });
@@ -104,31 +101,27 @@ export default class NewMenu extends View {
     const space = spaces().find(s => s.active);
     const installed = this.agents.filter(a => a.installed);
     const choices = this.choices();
-    const claude = this.claude();
-    const n = (this.skillCount ?? 0) + (this.mcpCount ?? 0);
-    const skillsLabel = this.starting ? "Starting Claude…" : n
-      ? `${claude?.name ?? "Claude"} · ${this.skillCount} skill${this.skillCount === 1 ? "" : "s"}${this.mcpCount ? ` · ${this.mcpCount} MCP` : ""}`
-      : "Project skills…";
     // Padding 10, Terminal + btop 62, label 28, divider 11, five actions 155, 31 per agent.
     // my-tabs opens the popup at the same height (from "new-menu.rows"), so the frame fits.
-    return v_flex().min_h(0).w_full().h(Math.min(266 + Math.max(1, choices.length) * 31 + (this.project ? 31 : 0), 640)).bg(t.popover).p(5).text_size(12.8)
+    return v_flex().min_h(0).w_full().h(Math.min(266 + Math.max(1, choices.length) * 31, 640)).bg(t.popover).p(5).text_size(12.8)
       .id("new-menu").track_focus(this.handle)
-      .on_key_down((e) => {
+      .on_key_down((e, cx) => {
         if (e.modifiers.control || e.modifiers.platform || e.modifiers.alt) return;
         if (!/^[1-9]$/.test(e.key)) return;
         if (this.agents.length === 0 && !this.failed) { this.pending = Number(e.key); return; }
-        this.launch(Number(e.key));
+        this.launch(Number(e.key), cx);
       })
       .child(this.row("terminal", svg("icons/shell.svg").size(14), "Terminal", () => run("tab.new", { space: space?.id, folder: spaceFolder(space) ?? undefined }), shortcut("tab.new")))
       .child(this.row("btop", svg("icons/htop.svg").size(14), "btop", () => run("tab.new", { name: "btop", space: space?.id, folder: spaceFolder(space) ?? undefined, argv: ["btop"] }), "", Boolean(space)))
       .child(div().h(28).flex_none().flex().items_end().px(9).pb(6).text_size(11).text_color(t.dim).child("Start an agent"))
       .child(v_flex().flex_1().min_h(0).overflow_y_scrollbar()
-        .children(choices.map((a, i) => this.row(a.key, a.tint ? svg(a.icon).size(14).text_color(t.foreground) : image(a.icon).size(14), a.name,
-          () => run("tab.new", { name: a.name, space: space?.id, folder: spaceFolder(space) ?? undefined, argv: a.run }), a.installed ? (i < 9 ? String(i + 1) : "") : "not installed", a.installed)))
+        .children(choices.map((a, i) => {
+          const skills = this.withSkills(a);
+          return this.row(a.key, a.tint ? svg(a.icon).size(14).text_color(t.foreground) : image(a.icon).size(14), a.name,
+            skills ? (cx) => this.launchSkills(cx) : () => run("tab.new", { name: a.name, space: space?.id, folder: spaceFolder(space) ?? undefined, argv: a.run }),
+            a.installed ? (i < 9 ? String(i + 1) : "") : "not installed", a.installed && !(skills && this.starting), skills);
+        }))
         .when(this.agents.length === 0, el => el.child(div().px(9).py(6).text_color(t.dim).child(this.failed ? "Could not load agents" : "Checking installed agents…"))))
-      .when(Boolean(this.project && claude), el => el.child(this.row("claude-skills",
-        claude.tint ? svg(claude.icon).size(14).text_color(t.foreground) : image(claude.icon).size(14), skillsLabel,
-        n ? (cx) => this.launchSkills(cx) : () => this.openSkillsTab(), "", !this.starting, Boolean(n))))
       .child(div().h(1).flex_none().mx(4).my(5).bg(t.border))
       .child(this.row("vscode", svg("mods/open-vscode/vscode.svg").size(14), "Open in VS Code", () => run("mod.open", { name: "open-vscode" }), "", Boolean(space)))
       .child(this.row("zed", svg("mods/open-zed/zed.svg").size(14), "Open in Zed", () => run("mod.open", { name: "open-zed" }), shortcut("mod.open:open-zed"), Boolean(space)))

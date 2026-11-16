@@ -1,11 +1,16 @@
 {
-  "zoom": 1,
+  "zoom": 0.8999999761581421,
   "sounds": {
     "enabled": true
   },
-  "font_size": 12,
+  "font_size": 13,
+  "font_weight": 400,
   "font_ligatures": false,
+  "terminal_line_height": 1,
+  "terminal_cell_width": 1,
+  "terminal_scroll_speed": 0.8999999761581421,
   "ui_font": "Inter 28pt",
   "minimum_contrast": 1,
-  "appearance": "dark"
+  "appearance": "light",
+  "font": "BlexMono Nerd Font"
 }

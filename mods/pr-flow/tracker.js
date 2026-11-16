@@ -12,8 +12,11 @@ const SETTLED_FACTOR = 4;
 const MERGED_KEEP_MS = 30 * 24 * 3_600_000;
 const CONCURRENCY = 4;
 const FLOW_POLL_MS = 15_000;
-const VIEW_MS = 5 * 60_000;
-const PAGE = 20; // PRs asked of GitHub per page; scrolling to the end asks for another
+const VIEW_MS = 2 * 60_000; // a shown list view reloads (count, then its pages) this often
+const COUNT_MS = 60_000;
+const PAGE = 20; // PRs per page; scrolling to the end asks for the next one (spec 019)
+const FLOW_RECENT_MS = 24 * 3_600_000; // listed merged PRs get Actions data only this soon after merging,
+const FLOW_PER_TICK = 8; // in the background, this many per round
 
 function clean(pr) {
   return { ...pr, title: sanitize(pr.title), body: sanitize(pr.body) };
@@ -28,13 +31,17 @@ export function createTracker({ gh, remoteOf, store, settings, now = Date.now })
   const remotes = new Map(); // on:cwd -> { at, repo }
   let agents = [];
   let lastError = '';
-  let viewAt = -Infinity;
-  let view = { state: 'open', scope: 'mine' };
+  let view = { repo: null, state: 'open', scope: 'mine' };
   let me = null; // your GitHub logins, one per gh account
-  const listed = new Map(); // `${state}:${scope}` -> Set of urls the list call returned for that view
-  const limits = new Map(); // view key -> how many PRs the list call asks for
-  const full = new Map(); // view key -> whether that call came back full (so there may be more)
-  const viewKey = () => `${view.state}:${view.scope}`;
+  let focused = null; // the opened PR: polled like an agent's
+  // The list (spec 019): per repo|state|scope, the count first, then pages of PRs by cursor.
+  const views = new Map(); // key -> { urls, cursor, next, pages, at, loading, error }
+  const counts = new Map(); // key -> { n, at, p }
+  const flowQueue = new Set(); // listed merged PRs still without Actions data
+  const keyOf = (v, state = v.state) => `${v.repo}|${state}|${v.scope}`;
+  const viewKey = () => keyOf(view);
+  const listedNow = () => new Set(views.get(viewKey())?.urls ?? []);
+  const listedAny = () => new Set([...views.values()].flatMap((v) => v.urls));
 
   async function repoOf(agent) {
     const key = `${agent.on ?? ''}:${agent.cwd}`;
@@ -70,30 +77,112 @@ export function createTracker({ gh, remoteOf, store, settings, now = Date.now })
     await refresh(entry.url);
   }
 
-  // The list's own source, every few minutes: your PRs (or every PR of the repos you have a terminal in)
-  // in the chosen state. Once listed, a PR refreshes like any other. Branch discovery above adds more.
-  async function discoverView() {
-    if (now() - viewAt < VIEW_MS) return;
-    viewAt = now();
+  async function logins() {
     if (!me?.length) me = await gh.me().catch(() => null);
-    let urls = [];
-    const key = viewKey(), limit = limits.get(key) ?? PAGE;
-    try {
-      if (view.scope === 'mine') { urls = await gh.mine(view.state, limit); full.set(key, urls.length >= limit); }
-      else {
-        const repos = [...new Set(agents.map((a) => a.repo).filter(Boolean))];
-        const lists = await Promise.all(repos.map((r) => gh.listRepo(r, view.state, limit)));
-        urls = lists.flat();
-        full.set(key, lists.some((l) => l.length >= limit));
-      }
-    } catch (error) { lastError = error.message; }
-    listed.set(key, new Set(urls.map((u) => parsePrUrl(u)?.url).filter(Boolean)));
-    let added = false;
-    for (const url of urls) {
-      const parsed = parsePrUrl(url);
-      if (parsed && !tracked[parsed.url]) { track(url); added = true; }
+    return me?.length ? me : null;
+  }
+
+  // The view's total (cached COUNT_MS). Mine counts every logged-in login's PRs; null when unknown.
+  function countStale(state, v = view) {
+    const c = counts.get(keyOf(v, state));
+    return Boolean(v.repo) && (!c || (!c.p && now() - c.at >= COUNT_MS));
+  }
+  async function ensureCount(state, v = view, force = false) {
+    if (!v.repo) return null;
+    const key = keyOf(v, state);
+    let c = counts.get(key);
+    if (c?.p) return c.p;
+    if (c && !force && now() - c.at < COUNT_MS) return c.n;
+    c = { n: c?.n ?? null, at: now(), p: null };
+    counts.set(key, c);
+    c.p = (async () => {
+      const who = v.scope === 'mine' ? await logins() : null;
+      if (v.scope === 'mine' && !who) return c.n;
+      try { c.n = await gh.count(v.repo, state, who); } catch (error) { lastError = error.message; }
+      return c.n;
+    })().finally(() => { c.p = null; c.at = now(); });
+    return c.p;
+  }
+
+  // One page into the tracked set and the live data (data fetched in full shortly before is kept).
+  async function fetchPage(v, after) {
+    const who = v.scope === 'mine' ? await logins() : null;
+    const r = await gh.page(v.repo, v.state, who, after, PAGE);
+    for (const p of r.prs) {
+      const entry = track(p.url, p.pr.headRefName);
+      if (!entry) continue;
+      const old = live.get(entry.url);
+      if (old?.pr && !old.partial && now() - old.fetchedAt < VIEW_MS) continue;
+      absorb(entry, p.pr, p, true);
     }
-    if (added) store.save(tracked);
+    for (const p of r.prs) {
+      const url = parsePrUrl(p.url)?.url, pr = live.get(url)?.pr;
+      if (pr?.state === 'MERGED' && now() - Date.parse(pr.mergedAt ?? 0) < FLOW_RECENT_MS && !flows.has(url)) flowQueue.add(url);
+    }
+    store.save(tracked);
+    return { urls: r.prs.map((p) => parsePrUrl(p.url)?.url).filter(Boolean), cursor: r.cursor, next: r.next && r.prs.length >= PAGE };
+  }
+
+  // Count first; 0 means no list call. Otherwise the loaded number of pages again, from the start.
+  async function loadView(force = false) {
+    const v = { ...view }, key = keyOf(v);
+    if (!v.repo) return;
+    const s = views.get(key) ?? { urls: [], cursor: null, next: false, pages: 1, at: -Infinity, loading: false, error: '' };
+    views.set(key, s);
+    if (s.loading || (!force && now() - s.at < VIEW_MS)) return;
+    s.loading = true;
+    try {
+      const total = await ensureCount(v.state, v, force);
+      if (total === 0) { Object.assign(s, { urls: [], cursor: null, next: false, pages: 1, error: '' }); return; }
+      let urls = [], cursor = null, next = true, pages = 0;
+      while (next && pages < s.pages) {
+        const page = await fetchPage(v, cursor);
+        urls = [...new Set([...urls, ...page.urls])];
+        ({ cursor, next } = page);
+        pages++;
+      }
+      Object.assign(s, { urls, cursor, next, pages: Math.max(1, pages), error: '' });
+    } catch (error) {
+      s.error = lastError = error.message;
+    } finally {
+      s.loading = false;
+      s.at = now();
+    }
+  }
+
+  function hasMore() {
+    const s = views.get(viewKey()), total = counts.get(viewKey())?.n;
+    return Boolean(s?.next) && (total == null || s.urls.length < total);
+  }
+
+  async function loadMore() {
+    const v = { ...view }, s = views.get(keyOf(v));
+    if (!s || s.loading || !hasMore()) return false;
+    s.loading = true;
+    try {
+      const page = await fetchPage(v, s.cursor);
+      s.urls = [...new Set([...s.urls, ...page.urls])];
+      s.cursor = page.cursor;
+      s.next = page.next;
+      s.pages++;
+      s.error = '';
+    } catch (error) {
+      s.error = lastError = error.message;
+    } finally { s.loading = false; }
+    return true;
+  }
+
+  // A PR's data from a full fetch or from a list page (`partial`: no files, body or thread comments).
+  function absorb(entry, pr, extra, partial) {
+    if (pr.headRefOid !== entry.headSha) {
+      entry.headSha = pr.headRefOid;
+      // A PR first seen long after its last commit should not wait for CI to appear.
+      const committed = extra.headCommittedAt ? Date.parse(extra.headCommittedAt) : now();
+      entry.headSeenAt = Math.min(committed, now());
+    }
+    entry.branch ||= pr.headRefName;
+    const issues = (extra.issues ?? []).map((i) => ({ ...i, title: sanitize(i.title) }));
+    live.set(entry.url, { pr: clean(pr), threads: extra.threads, issues, fetchedAt: now(), partial });
   }
 
   const refreshing = new Set();
@@ -103,15 +192,7 @@ export function createTracker({ gh, remoteOf, store, settings, now = Date.now })
     refreshing.add(url);
     try {
       const [pr, extra] = await Promise.all([gh.fetchPr(url), gh.fetchThreads(url)]);
-      if (pr.headRefOid !== entry.headSha) {
-        entry.headSha = pr.headRefOid;
-        // A PR first seen long after its last commit should not wait for CI to appear.
-        const committed = extra.headCommittedAt ? Date.parse(extra.headCommittedAt) : now();
-        entry.headSeenAt = Math.min(committed, now());
-      }
-      entry.branch ||= pr.headRefName;
-      const issues = (extra.issues ?? []).map((i) => ({ ...i, title: sanitize(i.title) }));
-      live.set(url, { pr: clean(pr), threads: extra.threads, issues, fetchedAt: now() });
+      absorb(entry, pr, extra, false);
       lastError = '';
       if (pr.state === 'MERGED') await refreshFlow(url);
       prune();
@@ -153,7 +234,9 @@ export function createTracker({ gh, remoteOf, store, settings, now = Date.now })
   }
 
   function prune() {
+    const keep = listedAny();
     for (const entry of Object.values(tracked)) {
+      if (keep.has(entry.url) || entry.url === focused) continue;
       const pr = live.get(entry.url)?.pr;
       if (!pr) continue;
       const mergedAt = pr.mergedAt ? Date.parse(pr.mergedAt) : 0;
@@ -192,21 +275,25 @@ export function createTracker({ gh, remoteOf, store, settings, now = Date.now })
       return true;
     });
     await inBatches(unique, discover);
-    await discoverView();
+    await loadView();
     const fresh = new Set(finished.flatMap((a) => Object.values(tracked).filter((t) => t.repo === a.repo && t.branch === a.branch).map((t) => t.url)));
-    // Only what the shown view lists (or an agent's branch) is polled; other views fetch when picked.
-    const inView = listed.get(viewKey());
+    // Listed rows refresh with their view's pages; one by one only an agent's branch and the opened PR.
     const due = Object.values(tracked).filter((entry) => {
-      if (!onBranch(entry) && !inView?.has(entry.url)) return false;
+      const mine = onBranch(entry), open = entry.url === focused;
+      if (!mine && !open) return false;
       const data = live.get(entry.url);
       if (!data) return true;
+      if (open && data.partial) return true;
       if (['MERGED', 'CLOSED'].includes(data.pr?.state)) return false;
       if (fresh.has(entry.url)) return true;
-      return now() - data.fetchedAt >= settings.pollMs * (onBranch(entry) ? 1 : SETTLED_FACTOR);
+      return now() - data.fetchedAt >= settings.pollMs * (mine ? 1 : SETTLED_FACTOR);
     });
     await inBatches(due, (e) => refresh(e.url));
     const flowing = Object.values(tracked).filter((e) => !due.includes(e) && flowBusy(e.url) && now() - (flows.get(e.url)?.checkedAt ?? -Infinity) >= FLOW_POLL_MS);
     await inBatches(flowing, (e) => refreshFlow(e.url));
+    const queued = [...flowQueue].slice(0, FLOW_PER_TICK);
+    for (const url of queued) flowQueue.delete(url);
+    await inBatches(queued.filter((url) => tracked[url] && !flows.has(url)), (url) => refreshFlow(url));
     prune();
   }
 
@@ -219,7 +306,7 @@ export function createTracker({ gh, remoteOf, store, settings, now = Date.now })
       const base = { key: entry.url, url: entry.url, repo: entry.repo, number: entry.number, agent };
       if (!data?.pr) {
         // Not fetched because the shown view doesn't list it: hide it instead of a spinner that never ends.
-        if (!data && !onBranch(entry) && !listed.get(viewKey())?.has(entry.url) && !refreshing.has(entry.url)) continue;
+        if (!data && !onBranch(entry) && !listedNow().has(entry.url) && entry.url !== focused && !refreshing.has(entry.url)) continue;
         out.push({ ...base, loading: true, error: data?.error });
         continue;
       }
@@ -236,13 +323,23 @@ export function createTracker({ gh, remoteOf, store, settings, now = Date.now })
     tick,
     refresh,
     loadJobs,
-    refreshAll: () => inBatches(Object.values(tracked), (e) => refresh(e.url)),
+    // Refresh: the view (count, then its pages) and, one by one, agents' and the opened PR.
+    refreshAll: () => Promise.all([loadView(true), inBatches(Object.values(tracked).filter((e) => onBranch(e) || e.url === focused), (e) => refresh(e.url))]),
     track,
     cards,
-    // Scrolled to the end of the list: ask GitHub for a bigger page of the shown view.
-    hasMore: () => full.get(viewKey()) === true,
-    loadMore() { if (full.get(viewKey()) !== true) return false; limits.set(viewKey(), (limits.get(viewKey()) ?? PAGE) + PAGE); full.set(viewKey(), false); viewAt = -Infinity; return true; },
-    setView(next) { view = next; viewAt = -Infinity; },
+    // The list (spec 019): count first, then a page at a time.
+    hasMore,
+    loadMore,
+    loadView,
+    setView(next) { view = { ...view, ...next }; },
+    viewOf: () => ({ ...view }),
+    viewState() { const s = views.get(viewKey()); return { loading: Boolean(s?.loading), loaded: Boolean(s && s.at > -Infinity), error: s?.error ?? '', total: counts.get(viewKey())?.n ?? null }; },
+    viewStale: () => Boolean(view.repo) && !views.get(viewKey())?.loading && now() - (views.get(viewKey())?.at ?? -Infinity) >= VIEW_MS,
+    total: (state) => counts.get(keyOf(view, state))?.n ?? null,
+    countStale,
+    ensureCount: (state) => ensureCount(state),
+    focus(url) { focused = url ?? null; },
+    isPartial: (url) => Boolean(live.get(url)?.partial),
     lastError: () => lastError,
   };
 }

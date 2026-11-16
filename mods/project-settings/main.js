@@ -379,7 +379,8 @@ export default class ProjectSettings extends View {
     // As a dialog: the kit's dialog frame (same as Changes, Git, Pull requests).
     const root = h_flex().id("pset-root").size_full().min_h(0).text_color(t.foreground).text_size(13);
     return (this.overlay != null ? dialogFrame(root) : root.bg(t.surface).rounded(10).border(1).border_color(t.border).overflow_hidden())
-      .child(v_flex().w(210).flex_none().h_full().bg(t.chrome).border_r(1).border_color(t.border)
+      // Round the sidebar's left corners to match the frame (overflow_hidden doesn't clip to the radius).
+      .child(v_flex().w(210).flex_none().h_full().bg(t.chrome).rounded_l(9).border_r(1).border_color(t.border)
         .child(h_flex().h(40).px(10).items_center().flex_none()
           .child(kitBtn("pset-back", { kind: "ghost", icon: this.overlay != null ? "close" : "back", label: this.overlay != null ? "Close" : "Back", color: t.muted, action: () => this.leave() })))
         .child(div().h(26).px(14).flex().items_center().text_size(11.5).text_color(t.dim).child("Projects"))
