@@ -1,9 +1,13 @@
 // Worktree dialog: { space, action: "new" | "open" | "remove" } or
 // { folder, machine } for a repo without a space; optional { branch, tab, argv }.
+// New: a "Start Claude" chip (localStorage startClaude, default on) opens the space with Claude carrying
+// the project's skills (spec 023; a worktree shares its main checkout's Project Settings › Skills).
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, Scrollbar } from "gpui-base";
-import { run, props, closeOverlay, theme, spaces, panes, exec, home } from "herdr";
+import { run, props, closeOverlay, theme, spaces, panes, exec, home, knownAgents } from "herdr";
+import { btn } from "./panel-ui.js";
+import { agentArgv, projectOf, enabledCount } from "./project-skills.js";
 import { spaceFolder } from "./space-folder.js";
 
 // A space's folder (space-folder.js).
@@ -144,6 +148,10 @@ export default class Worktree extends View {
     this.repo = undefined; // undefined: looking, null: not in git
     this.dirty = false;
     this.unpushed = [];
+    this.startClaude = true;
+    try { this.startClaude = localStorage.getItem("startClaude") !== "0"; } catch {}
+    this.claude = null; // the installed Claude agent for this machine (new only)
+    this.skillCount = 0;
     this.handle = cx.focus_handle();
     if (props()?.action === "remove") this.handle.focus();
     cx.spawn(async (cx) => {
@@ -166,6 +174,12 @@ export default class Worktree extends View {
         if (repo && props().action === "new") {
           this.used = new Set((await checkouts(repo, this.on)).map((c) => c.branch).filter(Boolean));
           this.branches = await branchList(repo, this.on);
+          this.claude = (await knownAgents({ on: this.on }).catch(() => [])).find((a) => a.key === "claude" && a.installed) ?? null;
+          if (this.claude && !this.on) {
+            const project = await projectOf(repo.main).catch(() => null);
+            const n = project ? await enabledCount(project).catch(() => null) : null;
+            this.skillCount = n ? n.skills + n.mcp : 0;
+          }
         }
         this.repo = repo;
         cx.notify();
@@ -220,8 +234,18 @@ export default class Worktree extends View {
     if (!r.ok) return r.err || "git worktree add failed.";
     const p = props();
     // Leave spaces unnamed so they follow the checkout folder and nest under the repo.
-    run("space.new", { folder: path, machine: this.on, tab: p.tab, argv: p.argv });
+    // A caller's own tab (name or argv) wins over Start Claude.
+    if (this.withClaude() && !p.argv && !p.tab) run("space.new", { folder: path, machine: this.on, tab: this.claude.name, argv: await agentArgv(this.claude, path, this.on) });
+    else run("space.new", { folder: path, machine: this.on, tab: p.tab, argv: p.argv });
     return "";
+  }
+
+  withClaude() { return Boolean(this.claude) && this.startClaude; }
+
+  toggleClaude(cx) {
+    this.startClaude = !this.startClaude;
+    try { localStorage.setItem("startClaude", this.startClaude ? "1" : "0"); } catch {}
+    cx.notify();
   }
 
   shown() {
@@ -422,10 +446,26 @@ export default class Worktree extends View {
       .when(remove || blocked, (el) => el.child(div().flex_1()))
       .child(
         h_flex()
-          .justify_end()
-          .text_size(11)
-          .text_color(t.dim)
-          .child(this.busy ? "working…" : blocked ? "esc close" : remove ? "↵ remove · esc cancel" : "↑↓ choose · ↵ create · esc cancel"),
+          .items_center()
+          .gap(8)
+          .when(!remove && !blocked && Boolean(this.claude) && !props()?.argv, (el) =>
+            el.child(btn("wt-claude", {
+              kind: "chip",
+              size: "sm",
+              icon: this.startClaude ? "check" : undefined,
+              label: this.skillCount ? `Start Claude · ${this.skillCount} skill${this.skillCount === 1 ? "" : "s"}` : "Start Claude",
+              on: this.startClaude,
+              tip: this.on ? "Open the new space with Claude" : this.skillCount ? "Open the new space with Claude and this project's skills (Project Settings › Skills)" : "Open the new space with Claude (no project skills on)",
+              action: (_e, cx) => this.toggleClaude(cx),
+            })),
+          )
+          .child(div().flex_1())
+          .child(
+            div()
+              .text_size(11)
+              .text_color(t.dim)
+              .child(this.busy ? "working…" : blocked ? "esc close" : remove ? "↵ remove · esc cancel" : `↑↓ choose · ↵ create${this.withClaude() && !props()?.argv ? " + Claude" : ""} · esc cancel`),
+          ),
       );
   }
 }

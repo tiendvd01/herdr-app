@@ -60,21 +60,32 @@ export function createTracker({ gh, remoteOf, store, settings, now = Date.now })
     return entry;
   }
 
-  // A working agent may open a PR at any moment; an idle one rarely does.
-  async function discover(agent) {
-    const { repo, branch } = agent;
-    if (Object.values(tracked).some((t) => t.repo === repo && t.branch === branch)) return;
-    const key = `${repo}:${branch}`;
-    const wait = agent.status === 'working' ? DISCOVER_WORKING_MS : DISCOVER_IDLE_MS;
-    if (now() - (discovered.get(key) ?? -Infinity) < wait) return;
-    discovered.set(key, now());
-    const url = await gh.discover(repo, branch).catch((error) => { lastError = error.message; return null; });
-    // No open PR: a PR merged within the keep window still shows while someone is on the branch.
-    const url2 = url ?? await gh.discoverMerged(repo, branch, now() - MERGED_KEEP_MS).catch(() => null);
-    if (!url2) return;
-    const entry = track(url2, branch);
-    store.save(tracked);
-    await refresh(entry.url);
+  // A working agent may open a PR at any moment; an idle one rarely does. Every due branch of one repo
+  // is looked up in one query (spec 022); a PR found is only tracked: the round's batched read fetches it.
+  async function discoverAll(list) {
+    const due = list.filter((agent) => {
+      const { repo, branch } = agent;
+      if (Object.values(tracked).some((t) => t.repo === repo && t.branch === branch)) return false;
+      const wait = agent.status === 'working' ? DISCOVER_WORKING_MS : DISCOVER_IDLE_MS;
+      return now() - (discovered.get(`${repo}:${branch}`) ?? -Infinity) >= wait;
+    });
+    const byRepo = new Map();
+    for (const a of due) {
+      discovered.set(`${a.repo}:${a.branch}`, now());
+      byRepo.set(a.repo, [...(byRepo.get(a.repo) ?? []), a.branch]);
+    }
+    let added = false;
+    await inBatches([...byRepo], async ([repo, branches]) => {
+      const r = await gh.discoverMany(repo, branches, now() - MERGED_KEEP_MS)
+        .catch((error) => ({ found: new Map(), failed: new Map(branches.map((b) => [b, error.message])) }));
+      for (const [branch, url] of r.found) added = Boolean(track(url, branch)) || added;
+      // A branch whose lookup failed is asked again after the short wait, not after the idle one.
+      for (const [branch, error] of r.failed) {
+        lastError = error;
+        discovered.set(`${repo}:${branch}`, now() - DISCOVER_IDLE_MS + DISCOVER_WORKING_MS);
+      }
+    });
+    if (added) store.save(tracked);
   }
 
   async function logins() {
@@ -87,21 +98,32 @@ export function createTracker({ gh, remoteOf, store, settings, now = Date.now })
     const c = counts.get(keyOf(v, state));
     return Boolean(v.repo) && (!c || (!c.p && now() - c.at >= COUNT_MS));
   }
+  // Both states' counts of a repo|scope come from one query (spec 022), so the two chips share one request.
+  const countLoads = new Map(); // repo|scope -> Promise
   async function ensureCount(state, v = view, force = false) {
     if (!v.repo) return null;
     const key = keyOf(v, state);
     let c = counts.get(key);
     if (c?.p) return c.p;
     if (c && !force && now() - c.at < COUNT_MS) return c.n;
-    c = { n: c?.n ?? null, at: now(), p: null };
-    counts.set(key, c);
-    c.p = (async () => {
+    const pair = `${v.repo}|${v.scope}`;
+    const both = ['open', 'merged'].map((s) => {
+      const k = keyOf(v, s), old = counts.get(k);
+      const e = { n: old?.n ?? null, at: now(), p: null };
+      counts.set(k, e);
+      return [s, e];
+    });
+    const load = countLoads.get(pair) ?? (async () => {
       const who = v.scope === 'mine' ? await logins() : null;
-      if (v.scope === 'mine' && !who) return c.n;
-      try { c.n = await gh.count(v.repo, state, who); } catch (error) { lastError = error.message; }
-      return c.n;
-    })().finally(() => { c.p = null; c.at = now(); });
-    return c.p;
+      if (v.scope === 'mine' && !who) return;
+      try {
+        const r = await gh.counts(v.repo, who);
+        for (const [s, e] of both) e.n = r[s];
+      } catch (error) { lastError = error.message; }
+    })().finally(() => { countLoads.delete(pair); for (const [, e] of both) { e.p = null; e.at = now(); } });
+    countLoads.set(pair, load);
+    for (const [s, e] of both) e.p = load.then(() => e.n);
+    return counts.get(key).p;
   }
 
   // One page into the tracked set and the live data (data fetched in full shortly before is kept).
@@ -185,24 +207,50 @@ export function createTracker({ gh, remoteOf, store, settings, now = Date.now })
     live.set(entry.url, { pr: clean(pr), threads: extra.threads, issues, fetchedAt: now(), partial });
   }
 
-  const refreshing = new Set();
-  async function refresh(url) {
-    const entry = tracked[url];
-    if (!entry) return;
-    refreshing.add(url);
-    try {
-      const [pr, extra] = await Promise.all([gh.fetchPr(url), gh.fetchThreads(url)]);
-      absorb(entry, pr, extra, false);
-      lastError = '';
-      if (pr.state === 'MERGED') await refreshFlow(url);
-      prune();
-    } catch (error) {
-      lastError = error.message;
-      live.set(url, { ...live.get(url), error: error.message, fetchedAt: now() });
+  // url -> how many refreshMany calls are reading it (tick and Refresh can overlap).
+  const refreshing = new Map();
+  // Full data of PRs, one query per 10 PRs of a repo (spec 022). A PR the answer lacks keeps its last data.
+  async function refreshMany(urls) {
+    const mine = [...new Set(urls)].filter((url) => tracked[url]);
+    const byRepo = new Map();
+    for (const url of mine) {
+      const entry = tracked[url];
+      refreshing.set(url, (refreshing.get(url) ?? 0) + 1);
+      byRepo.set(entry.repo, [...(byRepo.get(entry.repo) ?? []), entry]);
     }
-    refreshing.delete(url);
+    const merged = [], errors = [];
+    let ok = false;
+    try {
+      await inBatches([...byRepo], async ([repo, entries]) => {
+        const got = await gh.readPrs(repo, entries.map((e) => e.number)).catch((error) => new Map(entries.map((e) => [Number(e.number), { error: error.message }])));
+        for (const entry of entries) {
+          const r = got.get(Number(entry.number));
+          if (r?.pr) {
+            absorb(entry, r.pr, r, false);
+            ok = true;
+            if (r.pr.state === 'MERGED') merged.push(entry.url);
+          } else {
+            const error = r?.error ?? 'no answer';
+            errors.push(error);
+            live.set(entry.url, { ...live.get(entry.url), error, fetchedAt: now() });
+          }
+        }
+      });
+    } finally {
+      // Released once the PR data is in: Actions data of merged PRs below does not hold the cards.
+      for (const url of mine) {
+        const n = (refreshing.get(url) ?? 1) - 1;
+        if (n > 0) refreshing.set(url, n); else refreshing.delete(url);
+      }
+    }
+    // A later success must not hide an earlier failure of the same round.
+    if (errors.length) lastError = errors[0];
+    else if (ok) lastError = '';
+    await inBatches(merged, refreshFlow);
+    prune();
     store.save(tracked);
   }
+  const refresh = (url) => refreshMany([url]);
 
   // After a merge only Actions changes, so this is all a merged PR costs. Jobs are fetched for
   // unfinished runs; a finished run's jobs are fetched once, when someone opens it.
@@ -274,7 +322,7 @@ export function createTracker({ gh, remoteOf, store, settings, now = Date.now })
       seen.add(key);
       return true;
     });
-    await inBatches(unique, discover);
+    await discoverAll(unique);
     await loadView();
     const fresh = new Set(finished.flatMap((a) => Object.values(tracked).filter((t) => t.repo === a.repo && t.branch === a.branch).map((t) => t.url)));
     // Listed rows refresh with their view's pages; one by one only an agent's branch and the opened PR.
@@ -288,7 +336,7 @@ export function createTracker({ gh, remoteOf, store, settings, now = Date.now })
       if (fresh.has(entry.url)) return true;
       return now() - data.fetchedAt >= settings.pollMs * (mine ? 1 : SETTLED_FACTOR);
     });
-    await inBatches(due, (e) => refresh(e.url));
+    await refreshMany(due.map((e) => e.url));
     const flowing = Object.values(tracked).filter((e) => !due.includes(e) && flowBusy(e.url) && now() - (flows.get(e.url)?.checkedAt ?? -Infinity) >= FLOW_POLL_MS);
     await inBatches(flowing, (e) => refreshFlow(e.url));
     const queued = [...flowQueue].slice(0, FLOW_PER_TICK);
@@ -324,7 +372,7 @@ export function createTracker({ gh, remoteOf, store, settings, now = Date.now })
     refresh,
     loadJobs,
     // Refresh: the view (count, then its pages) and, one by one, agents' and the opened PR.
-    refreshAll: () => Promise.all([loadView(true), inBatches(Object.values(tracked).filter((e) => onBranch(e) || e.url === focused), (e) => refresh(e.url))]),
+    refreshAll: () => Promise.all([loadView(true), refreshMany(Object.values(tracked).filter((e) => onBranch(e) || e.url === focused).map((e) => e.url))]),
     track,
     cards,
     // The list (spec 019): count first, then a page at a time.

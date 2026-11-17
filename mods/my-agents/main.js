@@ -239,8 +239,26 @@ export default class Agents extends View {
         .when(s.id === on, (el) => el.child(svg("mods/workspace-chrome/check.svg").size(14).flex_none().text_color(t.foreground)))));
   }
 
+  // Herdr's own peek draws a square bar under its rounded frame (the corners
+  // poke out); this dialog draws one border around my-peek's bar + the terminal.
   peek(addr) {
-    run("terminal.peek", { terminal: addr });
+    openOverlay({
+      kind: "dialog",
+      frame: "none",
+      width: 0.8,
+      height: 0.8,
+      layout: {
+        type: "column",
+        background: "background",
+        border: { width: 1, color: "border" },
+        radius: 10,
+        shadow: "lg",
+        children: [
+          { type: "block", size: { px: 34 }, content: { mod: "my-peek", props: { terminal: addr } } },
+          { type: "block", padding: [6, 10], content: { terminal: addr } },
+        ],
+      },
+    });
   }
 
   // Live sub-agents of `addr`, depth first, each with the tree lines in front of it.

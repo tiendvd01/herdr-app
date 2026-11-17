@@ -214,7 +214,7 @@ function repoMenu(r, ctx) {
   const sync = st.behind && !st.ahead ? [pull, fetch, push] : st.ahead && !st.behind ? [push, fetch, pull]
     : !st.upstream ? [push, fetch] : [fetch, pull, push];
   return [
-    [...r.agents.slice(0, 3).map((a) => ({ ...item(`New ${a.name} tab`, a.icon ?? "plus", { type: "newTab", folder: r.path, name: a.name, argv: a.run }), image: Boolean(a.icon) && !a.tint })),
+    [...r.agents.slice(0, 3).map((a) => ({ ...item(`New ${a.name} tab`, a.icon ?? "plus", { type: "newTab", folder: r.path, name: a.name, key: a.key, argv: a.run }), image: Boolean(a.icon) && !a.tint })),
       item("New terminal tab", "plus", { type: "newTab", folder: r.path })],
     section(...sync),
     st.dirty > 0 ? section(item("Commit…", "commit", { type: "commit", staged: st.staged > 0 }),

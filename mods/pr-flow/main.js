@@ -3,7 +3,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, Scrollbar, TextView, v_virtual_list, TextareaState, Textarea } from "gpui-base";
 import { agents, panes, spaces, focused, exec, run, theme, props, settings, shared, setShared, closeOverlay, nextCommand, window as appWindow } from "herdr";
-import { MERGE_METHODS, createGh, runIdFromUrl } from "./gh.js";
+import { MERGE_METHODS, createGh, runIdFromUrl, parsePrUrl } from "./gh.js";
 import { repoFromRemote, githubHostChecker } from "./github.js";
 import { createTracker } from "./tracker.js";
 import { spaceFolder } from "./space-folder.js";
@@ -824,10 +824,14 @@ export default class PrFlow extends View {
     });
   }
 
-  // Comments are extra: the diff still shows when they can't load.
+  // Comments are extra: the diff still shows when they can't load. The same read as the list's (spec 022),
+  // as the repo's gh account.
   async loadThreads(target, cx) {
     try {
-      const { threads } = await this.gh.fetchThreads(target.url);
+      const p = parsePrUrl(target.url);
+      const r = (await this.gh.readPrs(p.repo, [p.number])).get(Number(p.number));
+      if (!r?.pr) throw new Error(r?.error ?? "no answer");
+      const { threads } = r;
       if (this.target !== target) return;
       this.threads = threads.map((x) => ({ ...x, comments: { nodes: (x.comments?.nodes ?? []).map((c) => ({ author: { login: sanitize(c.author?.login ?? "") }, body: sanitize(c.body) })) } }));
       cx.notify();

@@ -13,6 +13,8 @@
 import { div } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea, Popover } from "gpui-base";
 import { icon, iconButton, button } from "./panel-ui.js";
+import { agentArgv } from "./project-skills.js";
+import { spaceFolder } from "./space-folder.js";
 import { agents, focused, spaces, knownAgents, hc, run, notify, props, closeOverlay, theme, settings, nextCommand, setShared } from "herdr";
 
 // Where agents are looked up and started: the space's machine, which may not be this one.
@@ -92,7 +94,12 @@ export class Dialog {
         const agent = (await knownAgents({ on: space.machine })).find((a) => a.installed);
         if (this.closed) return;
         if (!agent) { this.error = `No agent is installed ${where(space)}. Install one first.`; return; }
-        run("tab.new", { space: space.id, argv: agent.run, task: text });
+        // Claude carries the focused folder's project skills (spec 023), worktrees included.
+        // The tab starts in that same folder, so Claude runs where its skills were picked.
+        const folder = spaceFolder(space);
+        const argv = await agentArgv(agent, folder, space.machine);
+        if (this.closed) return;
+        run("tab.new", { space: space.id, ...(folder ? { folder } : {}), argv, task: text });
         this.done(`Started ${agent.name} with your question`);
       }
       catch (e) { this.error = String(e?.message || e).trim().slice(0, 300) || "Could not start an agent"; }

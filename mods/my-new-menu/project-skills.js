@@ -10,7 +10,7 @@
 //
 // Invariant: nothing here ever writes under .agents/skills/, mcp/ or ~/.claude/. Only symlinks inside
 // claude-plugin/skills/ and unused feature-012 folders under claude-sessions/ are ever removed.
-import { exec, readTextFile, writeTextFile, home } from "herdr";
+import { exec, readTextFile, writeTextFile, home, notify } from "herdr";
 
 const NAME = /^[A-Za-z0-9._-]+$/;
 
@@ -228,6 +228,37 @@ export async function launchArgs(project, baseArgv) {
   await pruneLegacy(project).catch(() => {});
   const count = b.skills.length + b.mcp.length;
   return { argv: count ? [...baseArgv, "--plugin-dir", b.path] : null, count, skills: b.skills.length, mcp: b.mcp.length, skipped: b.skipped, path: b.path };
+}
+
+// Valid selected skills + MCP servers of a project: what the + menu counts on its Claude row.
+export async function enabledCount(project, library) {
+  const [sel, lib] = await Promise.all([readSelection(project), library ?? scanLibrary()]);
+  const ok = (list, names) => list.filter((x) => !x.invalid && names.includes(x.name)).length;
+  return { skills: ok(lib.skills, sel.skills), mcp: ok(lib.mcp, sel.mcp) };
+}
+
+// Argv for any place that starts an agent in a folder (spec 023: New worktree, git graph, reviewer Ask).
+// Claude in a local git project (main checkout or any worktree) with items on gets the project's shared
+// folder as --plugin-dir; everything else runs agent.run unchanged. Never throws: on failure Claude
+// starts plain and one warning says why.
+export async function agentArgv(agent, folder, machine) {
+  const plain = agent?.run ?? [];
+  if (agent?.key !== "claude" || machine || !folder) return plain;
+  try {
+    const project = await projectOf(folder);
+    if (!project) return plain;
+    // Nothing selected: no library scan and no folder written. Otherwise launchArgs scans and syncs once
+    // (its count drops selected names that are missing or invalid: argv null, Claude starts plain).
+    const sel = await readSelection(project);
+    if (sel.skills.length + sel.mcp.length === 0) return plain;
+    // A parallel start may be writing the same files: a second pass finds them in place.
+    const res = await launchArgs(project, plain).catch(() => launchArgs(project, plain));
+    if (res.skipped.length) notify({ level: "warning", title: "Skills skipped", body: res.skipped.map((x) => `${x.name}: ${x.reason}`).join(", ") });
+    return res.argv ?? plain;
+  } catch (e) {
+    notify({ level: "warning", title: "Project skills not attached", body: String(e?.message ?? e).slice(0, 300) });
+    return plain;
+  }
 }
 
 // Rough per-conversation size of a list of skills.

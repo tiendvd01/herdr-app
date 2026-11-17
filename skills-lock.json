@@ -1,6 +1,13 @@
 {
   "version": 2,
   "skills": {
+    "playwright-cli": {
+      "source": "microsoft/playwright-cli",
+      "commit": "b21724888b8100b05ef8dee3a92f2bb03bf4dcde",
+      "sourceType": "github",
+      "skillPath": "skills/playwright-cli/SKILL.md",
+      "computedHash": "d3c50339092b670cdda1ba2bed0bdee1c34247cdf70df475e8b7d83983a39e79"
+    },
     "ponytail": {
       "source": "DietrichGebert/ponytail",
       "sourceType": "github",

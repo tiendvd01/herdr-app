@@ -34,14 +34,16 @@ sync lib/pr-status.js mods/pr-flow/status.js mods/inbox/status.js
 # The UI kit (spec 018): buttons, motion, common surfaces for every personal screen. Icons: lib/icons/.
 sync lib/panel-ui.js mods/file-icons/panel-ui.js mods/reviewer/panel-ui.js mods/issues/panel-ui.js mods/git-graph/panel-ui.js mods/pr-flow/panel-ui.js mods/mermaid-board/panel-ui.js \
   mods/ui-gallery/panel-ui.js mods/my-tabs/panel-ui.js mods/project-settings/panel-ui.js mods/inbox/panel-ui.js mods/status-usage/panel-ui.js mods/processes/panel-ui.js \
-  mods/open-zed/panel-ui.js mods/open-vscode/panel-ui.js
+  mods/open-zed/panel-ui.js mods/open-vscode/panel-ui.js mods/my-worktree/panel-ui.js
 # Markdown with mermaid diagrams and its zoomable viewer: Issues, Files and the Mermaid board.
 sync lib/markdown.js mods/issues/markdown.js mods/file-icons/markdown.js mods/mermaid-board/markdown.js
 # Code block colors for that markdown: highlight.js (vendored, lib/vendor/) and the span mapping.
 sync lib/code-highlight.js mods/issues/code-highlight.js mods/file-icons/code-highlight.js mods/mermaid-board/code-highlight.js
 sync lib/vendor/highlight.min.js mods/issues/hljs.js mods/file-icons/hljs.js mods/mermaid-board/hljs.js
 sync lib/diagram-viewer.js mods/issues/diagram-viewer.js mods/file-icons/diagram-viewer.js mods/mermaid-board/diagram-viewer.js
-# Per-project Claude skills (library scan, skills.json, generated --plugin-dir bundle): Project Settings and the + menu.
-sync lib/project-skills.js mods/project-settings/project-skills.js mods/my-new-menu/project-skills.js
+# Per-project Claude skills (library scan, skills.json, generated --plugin-dir bundle): Project Settings, the + menu, and every
+# other place that starts Claude in a folder (New worktree, git graph, reviewer Ask; spec 023).
+sync lib/project-skills.js mods/project-settings/project-skills.js mods/my-new-menu/project-skills.js \
+  mods/my-worktree/project-skills.js mods/git-graph/project-skills.js mods/reviewer/project-skills.js
 # Listening ports per worktree (Project Settings › Ports); the herdr-ports MCP server imports lib/ports.js directly.
 sync lib/ports.js mods/project-settings/ports.js

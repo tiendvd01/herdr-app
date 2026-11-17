@@ -4,6 +4,7 @@ import { div, svg, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { props, closeOverlay, notify, theme, run } from "herdr";
 import { menuFor } from "./git.js";
+import { agentArgv } from "./project-skills.js";
 import { perform, openDialog, showChanges } from "./act.js";
 
 // A glyph of this mod, or another mod's icon by its path (Herdr's own Changes icon).
@@ -22,10 +23,19 @@ export class Menu {
     const it = this.items[i], { overlay, ctx } = props();
     if (!it || it.separator || this.busy) return;
     const a = it.action;
-    if (a.type === "newTab") {
+    if (a.type === "newTab" && a.argv) {
+      // Claude gets the repository's project skills (spec 023, local patch). The menu stays open until the
+      // argv is ready: closing it first would drop this view mid-way.
+      this.busy = true;
+      cx.spawn(async () => {
+        const argv = await agentArgv({ key: a.key, run: a.argv }, a.folder, null);
+        closeOverlay(overlay);
+        run("tab.new", { folder: a.folder, name: a.name, argv });
+      });
+    } else if (a.type === "newTab") {
       // As Herdr's + menu: a tab in the selected space, here in the repository.
       closeOverlay(overlay);
-      run("tab.new", { folder: a.folder, ...(a.argv ? { name: a.name, argv: a.argv } : {}) });
+      run("tab.new", { folder: a.folder });
     } else if (a.type === "openUrl") {
       closeOverlay(overlay);
       cx.open_url(a.url);

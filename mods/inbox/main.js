@@ -190,13 +190,22 @@ export default class Inbox extends View {
           if (urls) { this.urls = urls; this.listedAt = Date.now(); }
         }
         const due = this.urls.filter((u) => Date.now() - (this.fetchedAt[u] ?? -Infinity) >= PR_POLL_MS);
-        for (let i = 0; i < due.length; i += 4) {
-          const results = await Promise.all(due.slice(i, i + 4).map(async (url) => {
-            const [pr, extra] = await Promise.all([this.gh.fetchPr(url), this.gh.fetchThreads(url)]).catch(() => [null, null]);
-            this.fetchedAt[url] = Date.now();
-            return { url, pr, extra };
+        // One query per 10 PRs of a repo (spec 022), up to 4 repos at a time.
+        const byRepo = new Map();
+        for (const url of due) {
+          const p = parsePrUrl(url);
+          if (p) byRepo.set(p.repo, [...(byRepo.get(p.repo) ?? []), { url, number: p.number }]);
+        }
+        const repos = [...byRepo];
+        for (let i = 0; i < repos.length; i += 4) {
+          await Promise.all(repos.slice(i, i + 4).map(async ([repo, prs]) => {
+            const got = await this.gh.readPrs(repo, prs.map((p) => p.number)).catch(() => new Map());
+            for (const p of prs) {
+              this.fetchedAt[p.url] = Date.now();
+              const r = got.get(Number(p.number));
+              if (r?.pr && this.takePr(p.url, r.pr, r)) changed = true;
+            }
           }));
-          for (const { url, pr, extra } of results) if (pr && this.takePr(url, pr, extra)) changed = true;
         }
         // Gone from your open list: merged or closed. Its entry is done, its snapshot dropped.
         for (const url of Object.keys(this.prSnap)) {
