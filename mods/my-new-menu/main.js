@@ -1,8 +1,8 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { theme, spaces, panes, knownAgents, run, openOverlay, closeOverlay, props, window, keys, shared, setShared, notify } from "herdr";
+import { theme, spaces, knownAgents, run, openOverlay, closeOverlay, props, window, keys, shared, setShared } from "herdr";
 import { spaceFolder } from "./space-folder.js";
-import { projectOf, readSelection, scanLibrary, launchArgs } from "./project-skills.js";
+import { agentTab } from "./launch.js";
 
 function shortcut(name) {
   const k = keys().find(b => b.section === "global" && b.action === name);
@@ -31,51 +31,27 @@ export default class NewMenu extends View {
       catch { this.failed = true; }
       // A digit typed before the list arrived (cmd-n then 1 quickly) still starts that agent.
       if (this.pending) this.launch(this.pending, cx);
-      // Per-project skills (Project Settings > Skills): how many valid items this folder's project has on.
-      const space = spaces().find(s => s.active);
-      if (space && !space.machine && this.claude()) {
-        try {
-          this.project = await projectOf(spaceFolder(space));
-          if (this.project) {
-            const [sel, lib] = await Promise.all([readSelection(this.project), scanLibrary()]);
-            const ok = (list, names) => list.filter(x => !x.invalid && names.includes(x.name)).length;
-            this.skillCount = ok(lib.skills, sel.skills);
-            this.mcpCount = ok(lib.mcp, sel.mcp);
-          }
-        } catch { this.project = null; }
-      }
       // my-tabs sizes the next popup from this count, so the frame fits the rows exactly.
       const rows = this.choices().length;
       if (rows && shared("new-menu.rows") !== rows) setShared("new-menu.rows", rows);
       cx.notify();
     });
   }
-  claude() { return this.agents.find(a => a.key === "claude" && a.installed); }
-  // Claude with the project's skills on: rebuild the project's bundle, then start Claude with --plugin-dir. The popup stays
-  // open until the argv is ready (closing it first would drop this view mid-way).
-  launchSkills(cx) {
-    const claude = this.claude(), project = this.project;
-    if (!claude || !project || this.starting) return;
+  // Start an agent tab. Its command line (Claude: the project's skills folder or plain) is decided now by
+  // agentTab, never from a lookup made when the menu opened: a digit typed at once missed it and Claude
+  // started plain in main checkouts (spec 027). The popup stays open until the command is ready
+  // (closing it first would drop this view mid-way).
+  start(agent, cx) {
+    if (this.starting) return;
     this.starting = true;
     cx.notify();
-    cx.spawn(async cx => {
+    cx.spawn(async () => {
       const space = spaces().find(s => s.active);
-      let res;
-      try { res = await launchArgs(project, claude.run); }
-      catch (e) { res = { argv: null, skipped: [{ name: "bundle", reason: String(e?.message ?? e) }] }; }
-      if (res.skipped.length) notify({ level: "warning", title: "Skills skipped", body: res.skipped.map(x => `${x.name}: ${x.reason}`).join(", ") });
-      if (!res.argv) {
-        notify({ level: "warning", title: "No project skills on", body: "Turn skills on in Project Settings > Skills." });
-        this.starting = false;
-        cx.notify();
-        return;
-      }
+      const tab = await agentTab(agent, space, spaceFolder(space));
       closeOverlay(props().overlay);
-      run("tab.new", { name: claude.name, space: space?.id, folder: spaceFolder(space) ?? undefined, argv: res.argv });
+      run("tab.new", tab);
     });
   }
-  // One Claude row: it starts with --plugin-dir when the project has skills or MCP on, plain otherwise.
-  withSkills(a) { return a.key === "claude" && Boolean(this.project) && ((this.skillCount ?? 0) + (this.mcpCount ?? 0)) > 0; }
   choices() {
     const installed = this.agents.filter(a => a.installed);
     return [...installed, ...this.agents.filter(a => !a.installed).slice(0, 2)];
@@ -83,11 +59,7 @@ export default class NewMenu extends View {
   launch(n, cx) {
     this.pending = null;
     const agent = this.agents.filter(a => a.installed)[n - 1];
-    if (!agent) return;
-    if (cx && this.withSkills(agent)) return this.launchSkills(cx);
-    const space = spaces().find(s => s.active);
-    closeOverlay(props().overlay);
-    run("tab.new", { name: agent.name, space: space?.id, folder: spaceFolder(space) ?? undefined, argv: agent.run });
+    if (agent) this.start(agent, cx);
   }
   row(id, icon, name, action, hint = "", enabled = true, keepOpen = false) {
     const t = theme();
@@ -116,10 +88,8 @@ export default class NewMenu extends View {
       .child(div().h(28).flex_none().flex().items_end().px(9).pb(6).text_size(11).text_color(t.dim).child("Start an agent"))
       .child(v_flex().flex_1().min_h(0).overflow_y_scrollbar()
         .children(choices.map((a, i) => {
-          const skills = this.withSkills(a);
           return this.row(a.key, a.tint ? svg(a.icon).size(14).text_color(t.foreground) : image(a.icon).size(14), a.name,
-            skills ? (cx) => this.launchSkills(cx) : () => run("tab.new", { name: a.name, space: space?.id, folder: spaceFolder(space) ?? undefined, argv: a.run }),
-            a.installed ? (i < 9 ? String(i + 1) : "") : "not installed", a.installed && !(skills && this.starting), skills);
+            (cx) => this.start(a, cx), a.installed ? (i < 9 ? String(i + 1) : "") : "not installed", a.installed && !this.starting, true);
         }))
         .when(this.agents.length === 0, el => el.child(div().px(9).py(6).text_color(t.dim).child(this.failed ? "Could not load agents" : "Checking installed agents…"))))
       .child(div().h(1).flex_none().mx(4).my(5).bg(t.border))
