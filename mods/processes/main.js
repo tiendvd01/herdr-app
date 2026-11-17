@@ -1,6 +1,7 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { theme, shared, setShared, run, exec, hc, notify, closeOverlay, props, terminals } from "herdr";
+import { dialogFrame } from "./panel-ui.js";
 
 const age = (s) => {
   if (s >= 3600) return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
@@ -151,7 +152,8 @@ hc send --force "$addr" /compact
     const cpu = all.reduce((a, i) => a + i.cpu, 0);
     const rss = all.reduce((a, i) => a + i.rss, 0);
     const sorted = [...sessions].sort((a, b) => b.items.length - a.items.length);
-    return v_flex().id("proc-root").size_full().bg(t.popover).text_color(t.foreground)
+    // Opened with frame "none": this is the dialog's only frame, the kit's (as Changes, Git, Pull requests).
+    return dialogFrame(v_flex().id("proc-root").size_full()).bg(t.popover).text_color(t.foreground)
       .track_focus(this.fh)
       .on_mouse_down("left", () => this.fh.focus())
       .on_key_down((e) => { if (e.key === "escape") closeOverlay(props().overlay); })

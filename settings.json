@@ -1,5 +1,5 @@
 {
-  "zoom": 0.8999999761581421,
+  "zoom": 1,
   "sounds": {
     "enabled": true
   },
@@ -10,7 +10,8 @@
   "terminal_cell_width": 1,
   "terminal_scroll_speed": 0.8999999761581421,
   "ui_font": "Inter 28pt",
+  "telemetry": false,
   "minimum_contrast": 1,
   "appearance": "light",
-  "font": "BlexMono Nerd Font"
+  "font": "Geist Mono"
 }

@@ -7,6 +7,7 @@ import { View, div } from "gpui-kit";
 import { v_flex } from "gpui-base";
 import { appHome, closeOverlay, exec, focused, hc, props, readTextFile, spaces, theme, window as appWindow } from "herdr";
 import { spaceFolder } from "./space-folder.js";
+import { dialogFrame } from "./panel-ui.js";
 import { folderUri, protocolUrl, resolveHost } from "./uri.js";
 
 // A single-quoted PowerShell string.
@@ -60,7 +61,8 @@ export default class OpenVscode extends View {
 
   render() {
     const t = theme();
-    return v_flex().id("open-vscode").track_focus(this.handle).size_full().p(16).gap(6).justify_center().bg(t.popover).text_size(13)
+    // Opened with frame "none": this is the dialog's only frame, the kit's.
+    return dialogFrame(v_flex().id("open-vscode").track_focus(this.handle).size_full()).p(16).gap(6).justify_center().bg(t.popover).text_size(13)
       .child(div().text_color(this.error ? t.blocked : t.foreground).font_semibold().child(this.error ? "Could not open VS Code" : "Opening in VS Code…"))
       .child(div().text_size(12).text_color(t.muted).child(this.error ?? `${this.machine ? `${this.machine}:` : ""}${this.folder}`));
   }

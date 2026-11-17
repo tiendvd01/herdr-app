@@ -33,7 +33,8 @@ sync lib/pr-gh.js mods/pr-flow/gh.js mods/inbox/gh.js
 sync lib/pr-status.js mods/pr-flow/status.js mods/inbox/status.js
 # The UI kit (spec 018): buttons, motion, common surfaces for every personal screen. Icons: lib/icons/.
 sync lib/panel-ui.js mods/file-icons/panel-ui.js mods/reviewer/panel-ui.js mods/issues/panel-ui.js mods/git-graph/panel-ui.js mods/pr-flow/panel-ui.js mods/mermaid-board/panel-ui.js \
-  mods/ui-gallery/panel-ui.js mods/my-tabs/panel-ui.js mods/project-settings/panel-ui.js mods/inbox/panel-ui.js mods/status-usage/panel-ui.js
+  mods/ui-gallery/panel-ui.js mods/my-tabs/panel-ui.js mods/project-settings/panel-ui.js mods/inbox/panel-ui.js mods/status-usage/panel-ui.js mods/processes/panel-ui.js \
+  mods/open-zed/panel-ui.js mods/open-vscode/panel-ui.js
 # Markdown with mermaid diagrams and its zoomable viewer: Issues, Files and the Mermaid board.
 sync lib/markdown.js mods/issues/markdown.js mods/file-icons/markdown.js mods/mermaid-board/markdown.js
 # Code block colors for that markdown: highlight.js (vendored, lib/vendor/) and the span mapping.
