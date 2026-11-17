@@ -121,7 +121,8 @@ export function textButton(id, label, action, { color, tip, large = false } = {}
 
 // ---------- common surfaces ----------
 
-/** The frame of a dialog opened with frame "none": one border, rounded, shadow, clipped. */
+/** The frame of a dialog opened with frame "none": one border, rounded, shadow, clipped. The only dialog frame:
+ *  pair it with mod.json overlay.frame "none"; scripts/check-dialog-frames.mjs checks the rule (spec 024). */
 export function dialogFrame(el) {
   const t = theme();
   return el.rounded(UI.radius.xl).overflow_hidden().bg(t.background).border_1().border_color(t.border).shadow_lg();

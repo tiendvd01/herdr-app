@@ -137,7 +137,7 @@ export default class WorkspaceStatus extends View {
     const mb = all.reduce((a, i) => a + i.rss, 0) / 1048576;
     return btn("procs-badge", { kind: "ghost", size: "sm", icon: "mods/workspace-chrome/layers.svg", color: t.muted, tip: "Processes",
       label: `${tasks.length} proc · ${cpu.toFixed(0)}% · ${mb >= 1024 ? (mb / 1024).toFixed(1) + "G" : mb.toFixed(0) + "M"}`,
-      action: () => openOverlay({ mod: "processes", kind: "dialog", width: 920, height: 720, frame: "none" }) });
+      action: () => run("mod.open", { name: "processes" }) });
   }
 
   render() {

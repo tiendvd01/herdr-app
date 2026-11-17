@@ -10,7 +10,7 @@ import { READ, STATUS, UNCOMMITTED, LABEL, logArgs, parseLog, parseStatus, withU
   menuFor, menuHeight, fileArgs, joinFiles, diffArgs, diffRows } from "./git.js";
 import { perform, openDialog, showChanges } from "./act.js";
 import { icon } from "./menu.js";
-import { iconButton, backButton, chip, textButton, icon as uiIcon } from "./panel-ui.js";
+import { iconButton, backButton, chip, textButton, dialogFrame, icon as uiIcon } from "./panel-ui.js";
 import { available, check, openUpdate, newer } from "./update.js";
 import { depthOf, unsearched, findArgs, parseFound, REPO_STATUS, LATEST_TAG, FETCH, REMOTES, fetchable, parseRepoStatus, parseRemotes, webUrl, syncOf } from "./repos.js";
 
@@ -915,9 +915,9 @@ export class Graph {
     const t = theme(), mono = settings().font_family ?? "JetBrains Mono", ready = this.state === "ready";
     const savedDetail = Number(shared("git-graph.details")) || 0;
     if (!this.drag && savedDetail !== this.seenDetail) { this.seenDetail = savedDetail; this.detail = savedDetail; }
-    // As a dialog (frame "none") this is the only frame: same radius, border and shadow as Changes.
-    return v_flex().id("git-graph").size_full().min_h(0).rounded(this.overlay != null ? 10 : paneFrame(layout())?.radius ?? 0).overflow_hidden().bg(t.background).border_1().border_color(t.border)
-      .when(this.overlay != null, (e) => e.shadow_lg())
+    // As a dialog (frame "none") the kit's dialogFrame is the only frame (spec 024).
+    const docked = (e) => e.rounded(paneFrame(layout())?.radius ?? 0).overflow_hidden().bg(t.background).border_1().border_color(t.border);
+    return (this.overlay != null ? dialogFrame : docked)(v_flex().id("git-graph").size_full().min_h(0))
       .text_color(t.foreground).text_size(12.5).track_focus(this.handle)
       .on_mouse_move((e, cx) => this.moveDrag(e, cx))
       .on_mouse_up("left", (_e, cx) => this.endDrag(cx))
