@@ -30,7 +30,21 @@ export function pretty(cmd) {
   return c;
 }
 
+// Memory in use on the whole machine, as Activity Monitor counts it: app memory (anonymous minus
+// purgeable) + wired + compressed. Bytes, or null when vm_stat's output can't be read (spec 028).
+export function vmUsed(stdout) {
+  const size = Number(/page size of (\d+) bytes/.exec(stdout)?.[1]);
+  const pages = (name) => Number(new RegExp(`^${name}:\\s+(\\d+)`, "m").exec(stdout)?.[1]);
+  const v = pages("Anonymous pages") - pages("Pages purgeable") + pages("Pages wired down") + pages("Pages occupied by compressor");
+  return size > 0 && Number.isFinite(v) && v >= 0 ? v * size : null;
+}
+
+async function machineMem(exec) {
+  try { return vmUsed((await exec("/usr/bin/vm_stat", [], { timeout: 5000 })).stdout ?? ""); } catch { return null; }
+}
+
 export async function collect(exec) {
+  const memP = machineMem(exec);
   const r = await exec("/bin/ps", ["-axo", "pid=,ppid=,pcpu=,rss=,etime=,stat=,time=,command="], { timeout: 10000 });
   const procs = new Map();
   const kids = new Map();
@@ -43,12 +57,15 @@ export async function collect(exec) {
     kids.get(p.ppid).push(p.pid);
   }
   const now = Date.now();
+  const first = prevAt === 0;
   const dt = (now - prevAt) / 1000;
   const live = new Map();
   for (const p of procs.values()) {
     const b = prevCt.get(p.pid);
     live.set(p.pid, b !== undefined && dt > 0 ? Math.max(0, (p.ct - b) / dt * 100) : 0);
   }
+  // Whole-machine CPU: real use since the last poll; on the first poll only ps's decaying average exists.
+  const machineCpu = [...procs.values()].reduce((a, p) => a + (first ? p.cpu : live.get(p.pid) ?? 0), 0);
   prevCt = new Map([...procs.values()].map((p) => [p.pid, p.ct]));
   prevAt = now;
   const subtree = (pid) => {
@@ -79,5 +96,5 @@ export async function collect(exec) {
       age: procs.get(root).age, rootCpu: procs.get(root).cpu, rootRss: procs.get(root).rss, items,
     });
   }
-  return { at: Date.now(), sessions };
+  return { at: Date.now(), sessions, machine: { cpu: machineCpu, mem: await memP } };
 }

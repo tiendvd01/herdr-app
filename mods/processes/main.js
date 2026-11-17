@@ -2,13 +2,13 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { theme, shared, setShared, run, exec, hc, notify, closeOverlay, props, terminals } from "herdr";
 import { dialogFrame } from "./panel-ui.js";
+import { mem, readTotals, cpuText, ramText, hot, pct } from "./totals.js";
 
 const age = (s) => {
   if (s >= 3600) return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
   if (s >= 60) return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
   return `${s}s`;
 };
-const mem = (b) => (b >= 1073741824 ? `${(b / 1073741824).toFixed(1)} GB` : `${Math.round(b / 1048576)} MB`);
 const stopDrag = (_e, cx) => cx.stop_propagation();
 
 export default class Processes extends View {
@@ -18,6 +18,9 @@ export default class Processes extends View {
     this.expanded = new Set();
     this.restarting = new Set();
     this.removed = new Set();
+    // Machine totals for the header (spec 028); read once, they don't change while the app runs.
+    this.totals = null;
+    cx.spawn(async (cx) => { this.totals = await readTotals(exec); cx.notify(); });
   }
 
   // /exit, wait until Claude is gone, resume the same conversation in that terminal, then /compact it.
@@ -141,6 +144,20 @@ hc send --force "$addr" /compact
       .children(items.map((it) => this.row(t, se, it)));
   }
 
+  // Used / total as text over a thin bar (spec 028): the whole machine as a faint fill, the
+  // sessions' share as the solid fill over it; the alert color at 80% and above (machine if known).
+  meter(t, id, text, used, all, total) {
+    const warn = hot(all ?? used, total);
+    const col = warn ? t.blocked : t.accent;
+    const fill = (v) => div().absolute().top(0).left(0).h_full().rounded(3).w(`${pct(v, total).toFixed(1)}%`)
+      .transition("width", { duration: 300, easing: "ease-out" });
+    return v_flex().id(id).flex_1().min_w(0).gap(4)
+      .child(div().truncate().text_size(12).text_color(warn ? t.blocked : t.muted).child(text))
+      .child(div().relative().h(6).w_full().rounded(3).bg(t.border).overflow_hidden()
+        .when(all != null, (el) => el.child(fill(all).bg(col).opacity(0.35)))
+        .child(fill(used).bg(col)));
+  }
+
   render() {
     const t = theme();
     const d = shared("procs");
@@ -167,8 +184,13 @@ hc send --force "$addr" /compact
             cx.notify();
           }))
           .child(this.btn(t, "close", "Close", () => closeOverlay(props().overlay))))
-        .child(div().text_size(12).text_color(t.muted)
-          .child(`${sessions.length} sessions · ${tasks.length} processes · CPU ${cpu.toFixed(0)}% · RAM ${mem(rss)}`)))
+        .when(!this.totals, (el) => el.child(div().text_size(12).text_color(t.muted)
+          .child(`${sessions.length} sessions · ${tasks.length} processes · ${cpuText(cpu, null)} · ${ramText(rss, null)}`)))
+        .when(!!this.totals, (el) => el
+          .child(div().text_size(12).text_color(t.muted).child(`${sessions.length} sessions · ${tasks.length} processes`))
+          .child(h_flex().gap(16).pt(2)
+            .child(this.meter(t, "cpu-meter", cpuText(cpu, this.totals, d?.machine?.cpu), cpu, d?.machine?.cpu ?? null, (this.totals?.cores ?? 0) * 100))
+            .child(this.meter(t, "ram-meter", ramText(rss, this.totals, d?.machine?.mem), rss, d?.machine?.mem ?? null, this.totals?.mem ?? 0)))))
       .child(v_flex().id("proc-list").flex_1().overflow_y_scrollbar().gap(10).p(12)
         .when(!d, (el) => el.child(div().text_color(t.muted).child("Loading…")))
         .when(d && sessions.length === 0, (el) => el.child(div().text_color(t.muted).child("No Claude sessions running")))

@@ -6,6 +6,8 @@ const get = (name, fallback) => (...args) => (name in state ? (typeof state[name
 export const spaces = get("spaces", []);
 export const panes = get("panes", []);
 export const focused = get("focused", null);
+export const agents = get("agents", []);
+export const terminals = get("terminals", []);
 export const home = get("home", "/Users/test");
 export const theme = get("theme", {});
 export const settings = get("settings", {});
