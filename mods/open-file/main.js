@@ -7,6 +7,7 @@ import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { exec, run, props, closeOverlay, theme } from "herdr";
 import { activePlace } from "./space-folder.js";
+import { dialogFrame } from "./panel-ui.js";
 
 const SHOWN = 30;
 const isPath = (q) => /^(~|\.{1,2})(\/|$)|^\//.test(q);
@@ -86,7 +87,7 @@ export default class OpenFile extends View {
 
   render() {
     const t = theme();
-    return v_flex().id("open-file").track_focus(this.handle).on_key_down((e, cx) => this.key(e, cx))
+    return dialogFrame(v_flex().id("open-file")).track_focus(this.handle).on_key_down((e, cx) => this.key(e, cx))
       .size_full().min_h(0).p(12).gap(8).bg(t.popover).text_color(t.foreground)
       .child(Input.new(this.input).h(36).px(10).rounded(9).border_1().border_color(t.accent).bg(t.background).text_size(13).text_color(t.foreground))
       .child(div().text_size(10).text_color(t.dim).truncate().child(this.cwd || ""))

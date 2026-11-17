@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 const root = process.argv[2] ?? new URL("..", import.meta.url).pathname;
 // Herdr's own mods (constitution I) are not ours to fix.
-const SHIPPED = new Set(["picker", "open-file", "machine-add", "mermaid-board", "worktree", "menu", "agents", "win98",
+const SHIPPED = new Set(["picker", "machine-add", "mermaid-board", "worktree", "menu", "agents", "win98",
   "spaces", "files", "tabs", "pane", "peek", "changes", "new-menu", "workspace-chrome", "terminals-bar", "toast"]);
 
 const modsDir = join(root, "mods");

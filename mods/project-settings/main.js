@@ -5,8 +5,9 @@ import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex, EditorState, Editor, InputState, Input } from "gpui-base";
 import { theme, spaces, exec, readTextFile, writeTextFile, home, settings, run, terminals, panes, shared, setShared, props, closeOverlay } from "herdr";
 import { spaceFolder } from "./space-folder.js";
-import { btn as kitBtn, button, dialogFrame } from "./panel-ui.js";
+import { btn as kitBtn, button, dialogFrame, card } from "./panel-ui.js";
 import { loadPorts as loadPortsOf, shortHome } from "./ports.js";
+import { indexState, runIndex, running, ensureExcluded } from "./codegraph.js";
 import { projectOf, scanLibrary, readSelection, writeSelection, syncBundle, pruneLegacy, estimate, skillsDir, mcpDir } from "./project-skills.js";
 
 const TEMPLATE = `#!/bin/sh
@@ -93,6 +94,11 @@ export default class ProjectSettings extends View {
     this.search = InputState.new({ placeholder: "Search skills and MCP servers…" });
     this.search.on("change", (_e, cx) => cx.notify());
     this.openReq = null; // last "open the Skills tab" request seen (shared "project-settings.tab")
+    // Index tab (spec 026): CodeGraph state of the selected project; loaded when the tab is shown.
+    this.cg = null;
+    this.cgFor = null;
+    this.cgErr = "";
+    this.cgMsg = "";
     this.scan(cx);
     cx.timer.every(5000, (cx) => this.scan(cx));
     cx.timer.every(3000, (cx) => this.refreshPorts(cx));
@@ -193,6 +199,7 @@ export default class ProjectSettings extends View {
     this.pSaved = await readTextFile(r.promptFile).catch(() => null);
     this.pEditor.set_value(this.pSaved?.trim() ? this.pSaved : DEFAULT_SUMMARY_PROMPT);
     this.pMsg = "";
+    this.cgErr = ""; this.cgMsg = "";
     await this.loadSkills(r);
   }
 
@@ -294,6 +301,100 @@ export default class ProjectSettings extends View {
           v_flex().px(10).py(5).child(div().text_color(t.muted).truncate().child(x.name)).child(div().text_size(11.5).text_color(t.dim).truncate().child(x.description))))));
   }
 
+  // Codebase index state of the selected project (codegraph status + git exclude).
+  loadIndex(cx) {
+    const r = this.sel;
+    if (!r || this.cgLoading === r.main) return;
+    this.cgLoading = r.main;
+    cx.spawn(async (cx) => {
+      const s = await indexState(r.main, exec, home()).catch((e) => ({ error: String(e?.message ?? e) }));
+      if (this.cgLoading === r.main) this.cgLoading = null;
+      if (this.sel === r) { this.cg = s; this.cgFor = r.main; }
+      cx.notify();
+      // A run started before this dialog opened (it outlives the dialog): show its result when it ends.
+      const mode = running(r.main);
+      if (mode && this.sel === r && !this.cgWait) {
+        this.cgWait = true;
+        await runIndex(r.main, exec, null, home(), mode);
+        this.cgWait = false;
+        if (this.sel === r) this.loadIndex(cx);
+      }
+    });
+  }
+
+  // "init" makes .codegraph/ (exclude entry first), "sync" refreshes it; runs on after the dialog closes.
+  indexRun(mode, cx) {
+    const r = this.sel;
+    if (!r || running(r.main)) return;
+    this.cgErr = ""; this.cgMsg = "";
+    const io = { read: (p) => readTextFile(p), write: (p, text, old) => writeTextFile(p, text, old) };
+    const job = runIndex(r.main, exec, io, home(), mode);
+    cx.notify();
+    cx.spawn(async (cx) => {
+      const res = await job;
+      if (this.sel === r) {
+        if (res.ok) this.cgMsg = mode === "init" ? "Indexed" : "Index updated";
+        else this.cgErr = res.error;
+        this.loadIndex(cx);
+      }
+      cx.notify();
+    });
+  }
+
+  excludeIndex(cx) {
+    const r = this.sel;
+    if (!r) return;
+    const io = { read: (p) => readTextFile(p), write: (p, text, old) => writeTextFile(p, text, old) };
+    cx.spawn(async (cx) => {
+      try { await ensureExcluded(r.main, exec, io); this.cgMsg = "Added .codegraph/ to the local git exclude list"; this.cgErr = ""; }
+      catch (e) { this.cgErr = String(e?.message ?? e); }
+      if (this.sel === r) this.loadIndex(cx);
+      cx.notify();
+    });
+  }
+
+  indexView(t) {
+    const r = this.sel, s = this.cgFor === r.main ? this.cg : null;
+    const run = running(r.main);
+    const short = (p) => (p ?? "").replace(home(), "~");
+    const head = v_flex().gap(4)
+      .child(div().font_semibold().child("Codebase index"))
+      .child(div().text_color(t.muted).whitespace_normal().child("A CodeGraph index in the project folder lets agents look up code without grepping. It stays local: .codegraph/ is added to this repo's own git exclude list, never to .gitignore."))
+      .child(div().text_size(11.5).text_color(t.dim).truncate().child(`${short(r.main)}/.codegraph`));
+    const line = (label, value) => h_flex().gap(8).child(div().w(110).text_color(t.muted).child(label)).child(div().flex_1().min_w(0).truncate().child(value));
+    const ago = (iso) => {
+      const m = Math.round((Date.now() - Date.parse(iso)) / 60000);
+      return !iso || Number.isNaN(m) ? "unknown" : m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`;
+    };
+    const dot = (c) => div().size(8).flex_none().rounded(4).bg(c);
+    let body;
+    if (!s) body = div().text_color(t.muted).child("Checking…");
+    else if (s.error) body = div().text_color(t.blocked).child(`Failed: ${s.error}`);
+    else if (!s.tool) body = card().child(h_flex().gap(8).items_center().child(dot(t.blocked)).child(div().font_semibold().child("codegraph is not installed")))
+      .child(div().text_color(t.muted).whitespace_normal().child("Install the codegraph command (it is looked up on PATH, in ~/.local/bin and in your login shell), then press Check again."))
+      .child(h_flex().child(kitBtn("cg-recheck", { kind: "secondary", size: "md", label: "Check again", action: (_e, cx) => this.loadIndex(cx) })));
+    else if (s.blocked) body = card().child(div().text_color(t.muted).child(`Not offered for ${s.blocked}.`));
+    else if (!s.indexed) body = card()
+      .child(h_flex().gap(8).items_center().child(dot(t.dim)).child(div().font_semibold().child(run ? "Indexing…" : "Not indexed")))
+      .child(div().text_color(t.muted).whitespace_normal().child("Runs codegraph init here. Large projects can take a few minutes; you can close this dialog meanwhile."))
+      .child(h_flex().child(kitBtn("cg-init", { kind: "primary", size: "md", label: run ? "Indexing…" : "Index codebase", busy: !!run, disabled: !!run, action: (_e, cx) => this.indexRun("init", cx) })));
+    else body = card()
+      .child(h_flex().gap(8).items_center().child(dot(t.done)).child(div().flex_1().font_semibold().child(run === "sync" ? "Updating…" : "Indexed"))
+        .child(kitBtn("cg-sync", { kind: "secondary", size: "md", label: run ? "Updating…" : "Update index", busy: !!run, disabled: !!run, action: (_e, cx) => this.indexRun("sync", cx) }))
+        .child(kitBtn("cg-reload", { kind: "icon", size: "md", icon: "refresh", tip: "Check again", action: (_e, cx) => this.loadIndex(cx) })))
+      .child(line("Files", s.files == null ? "unknown" : s.files.toLocaleString()))
+      .child(line("Symbols", s.symbols == null ? "unknown" : s.symbols.toLocaleString()))
+      .child(line("Last indexed", s.lastIndexed ? ago(s.lastIndexed) : "unknown"))
+      .when(s.pending > 0, (el) => el.child(line("Changed since", `${s.pending} file${s.pending === 1 ? "" : "s"} (updates itself while an agent uses it)`)))
+      .child(line("Git", s.tracked ? "tracked in git — left as is" : s.ignored ? "ignored" : "not ignored — shows in git status"))
+      .when(!s.tracked && !s.ignored, (el) => el.child(h_flex().child(kitBtn("cg-exclude", { kind: "primary", size: "md", label: "Ignore in git", action: (_e, cx) => this.excludeIndex(cx) }))));
+    return v_flex().id("cg-view").flex_1().min_h(0).overflow_y_scrollbar().gap(14)
+      .child(head)
+      .child(body)
+      .when(Boolean(this.cgErr), (el) => el.child(div().text_color(t.blocked).whitespace_normal().child(`Failed: ${this.cgErr}`)))
+      .when(Boolean(this.cgMsg) && !this.cgErr, (el) => el.child(div().text_color(t.muted).child(this.cgMsg)));
+  }
+
   // The + menu asks for this tab with shared "project-settings.tab" = { tab, folder, at }.
   openRequest(cx) {
     const req = shared("project-settings.tab");
@@ -373,6 +474,7 @@ export default class ProjectSettings extends View {
 
   render(cx) {
     this.openRequest(cx);
+    if (this.tab === "index" && this.sel && this.cgFor !== this.sel.main) this.loadIndex(cx);
     const t = theme();
     const dirty = this.sel && this.editor.value() !== (this.saved ?? TEMPLATE);
     const btn = (id, label, fn, primary) => button(id, label, fn, { primary });
@@ -398,11 +500,12 @@ export default class ProjectSettings extends View {
             .child(div().text_size(18).font_semibold().child(this.sel.name))
             .child(div().text_size(11.5).text_color(t.dim).truncate().child(this.sel.main.replace(home(), "~"))))
           .child(h_flex().gap(4)
-            .children([["ports", "Ports"], ["script", "Worktree script"], ["prompt", "Summary prompt"], ["skills", "Skills"]].map(([k, label]) => kitBtn(`tab-${k}`, { kind: "chip", size: "md", label, on: this.tab === k,
-              action: (_e, cx) => { this.tab = k; if (k === "skills") this.refreshSkills(cx); cx.notify(); } }))))
+            .children([["ports", "Ports"], ["script", "Worktree script"], ["prompt", "Summary prompt"], ["skills", "Skills"], ["index", "Index"]].map(([k, label]) => kitBtn(`tab-${k}`, { kind: "chip", size: "md", label, on: this.tab === k,
+              action: (_e, cx) => { this.tab = k; if (k === "skills") this.refreshSkills(cx); if (k === "index") this.loadIndex(cx); cx.notify(); } }))))
           .when(this.tab === "ports", (x) => x.child(this.portsView(t)))
           .when(this.tab === "prompt", (x) => x.child(this.promptView(t, btn)))
           .when(this.tab === "skills", (x) => x.child(this.skillsView(t, btn)))
+          .when(this.tab === "index", (x) => x.child(this.indexView(t)))
           .when(this.tab === "script", (x) => x
           .child(v_flex().gap(4)
             .child(div().font_semibold().child("Worktree script"))
