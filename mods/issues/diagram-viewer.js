@@ -1,7 +1,7 @@
 // GENERATED from lib/diagram-viewer.js by scripts/sync-github-lib.sh. Do not edit here.
 // The diagram viewer shared by the Issues and Files panels: a dialog opened as an overlay of
 // the same mod (main.js hands the copy to this class when props().viewer):
-//   openOverlay({ mod: "<mod>", kind: "dialog", width: 0.9, height: 0.9,
+//   openOverlay({ mod: "<mod>", kind: "dialog", width: 0.9, height: 0.9, frame: "none",
 //     props: { viewer: true, title, path, w, h, mmd, hires, hiresPath, dark } })
 // `path` is the 2x picture shown in the panel; a 4x one (`hires`, from the
 // `mmd` source) is rendered on open so zooming in stays sharp.
@@ -9,7 +9,7 @@
 // keys: + - 0 (100%) f (fit), Esc closes.
 import { div, image } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { iconButton } from "./panel-ui.js";
+import { iconButton, dialogFrame } from "./panel-ui.js";
 import { exec, props, closeOverlay, theme } from "herdr";
 import * as fs from "fs/promises";
 
@@ -96,7 +96,7 @@ export class Viewer {
       .child(div().absolute().bottom(8).right(12).px(8).py(3).rounded(6).bg(t.raised + "e0").text_size(10).text_color(t.dim)
         .child("Drag or scroll to move · ⌘/Ctrl + scroll to zoom"));
 
-    return v_flex().id("viewer").track_focus(this.handle).size_full().min_h(0).bg(t.background).text_color(t.foreground)
+    return dialogFrame(v_flex().id("viewer").track_focus(this.handle).size_full().min_h(0)).text_color(t.foreground)
       .on_key_down((e, cx) => {
         const k = e.key;
         if (k === "escape") this.close();

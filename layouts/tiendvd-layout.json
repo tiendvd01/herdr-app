@@ -158,6 +158,13 @@
                       "content": {
                         "mod": "issues"
                       }
+                    },
+                    {
+                      "id": "threads",
+                      "type": "block",
+                      "content": {
+                        "mod": "threads"
+                      }
                     }
                   ],
                   "active": "files"

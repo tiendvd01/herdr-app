@@ -74,7 +74,7 @@ export class Markdown {
 
   // A rendered diagram with a button (and a click on it) that opens it in the zoomable viewer.
   card(id, d, w, h, t, title) {
-    const open = () => openOverlay({ mod: this.mod, kind: "dialog", width: 0.9, height: 0.9,
+    const open = () => openOverlay({ mod: this.mod, kind: "dialog", width: 0.9, height: 0.9, frame: "none",
       props: { viewer: true, title, path: d.path, w: d.w, h: d.h, mmd: d.mmd, dark: d.dark, hires: d.hires, hiresPath: d.hiresPath } });
     return div().id(`dg-${id}`).relative().p(6).rounded(6).bg(t.surface).cursor_pointer().on_click(open)
       .child(image(d.sharp ? d.hiresPath : d.path).w(w).h(h))

@@ -3,6 +3,7 @@ import { h_flex } from "gpui-base";
 import { spaces, panes, focused, exec, run, openOverlay, nextCommand, theme, window, shared, layout, settings } from "herdr";
 import { activePlace } from "./space-folder.js";
 import { btn } from "./panel-ui.js";
+import { tabTitle } from "./tab-title.js";
 
 // Same place the Changes panel reads: the focused pane's folder, on its machine.
 function location() {
@@ -107,7 +108,7 @@ export default class Tabs extends View {
       .on_mouse_down("left", stop);
     const item = (c, i) => {
       const program = panes().find(p => p.tab === c.id && p.program?.agent)?.program ?? panes().find(p => p.tab === c.id)?.program;
-      const name = /^tb\d+$/.test(c.name) ? program?.name ?? "Terminal" : c.name;
+      const name = tabTitle(c, panes());
       return h_flex().id(`tab-${c.id}`).h(29).px(10).gap(7).rounded(7).items_center().flex_none().text_size(12.8)
         .border(1).border_color(c.active ? t.border : t.chrome).bg(c.active ? t.raised : t.chrome).text_color(c.active ? t.foreground : t.muted)
         .hover(s => s.bg(t.hover))
@@ -130,7 +131,7 @@ export default class Tabs extends View {
       ? Math.max(10, (root.traffic_lights[0] + 64) / settings().zoom - (sidebar?.hidden ? 0 : sidebar?.size?.px ?? 0))
       : 10;
     const panel = find(root, "panel"), body = find(root, "panel-body");
-    const enabled = [...(shared("workspace.panels") ?? ["files", "changes"]), "issues"];
+    const enabled = [...(shared("workspace.panels") ?? ["files", "changes"]), "issues", "threads"];
     // Changes, Git and Pull requests are dialogs (reviewer, git-graph, pr-flow), not children of the right panel stack;
     // a space that remembered "graph" or "prs" as its panel falls back to a hidden panel.
     this.syncPanel(space, panel, body, enabled.filter(id => id !== "changes"));
@@ -166,6 +167,7 @@ export default class Tabs extends View {
       .when(enabled.includes("files"), el => el.child(panelButton("files", "Files", "mods/files/file.svg", null, "browse the space's folder")))
       .when(enabled.includes("changes"), el => el.child(changesButton))
       .child(panelButton("issues", "Issues", "mods/issues/issue.svg", null, "GitHub issues of this repo"))
+      .child(panelButton("threads", "Claude threads", "icons/claude.svg", null, "Claude threads of this folder"))
       .child(dialogButton("graph", "git-graph", "Git", "mods/git-graph/icons/graph.svg"))
       .child(dialogButton("prs", "pr-flow", "Pull requests", "mods/my-tabs/pull-request.svg"))
       .when(w?.buttons, el => el.child(button("minimize", w.platform === "windows" ? "mods/my-tabs/win-min.svg" : "−", () => run("window.minimize"), "Minimize"))

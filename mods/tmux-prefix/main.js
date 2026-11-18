@@ -97,7 +97,7 @@ export default class TmuxPrefix extends View {
     const [, , command, args = {}, repeatable = false] = binding;
     if (!repeatable) this.dismiss();
     if (command === "overlay.processes") run("mod.open", { name: "processes" });
-    else if (command === "overlay.scripts") openOverlay({ mod: "project-scripts", kind: "dialog", width: 760, height: 520 });
+    else if (command === "overlay.scripts") run("mod.open", { name: "project-scripts" });
     else run(command, args);
     if (repeatable) {
       this.repeat = true;

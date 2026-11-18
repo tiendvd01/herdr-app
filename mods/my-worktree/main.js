@@ -6,7 +6,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, Scrollbar } from "gpui-base";
 import { run, props, closeOverlay, theme, spaces, panes, exec, home, knownAgents } from "herdr";
-import { btn } from "./panel-ui.js";
+import { btn, dialogFrame } from "./panel-ui.js";
 import { agentArgv, projectOf, enabledCount } from "./project-skills.js";
 import { spaceFolder } from "./space-folder.js";
 
@@ -327,7 +327,7 @@ export default class Worktree extends View {
         .child(div().truncate().text_size(11.5).text_color(t.dim).child(tilde(c.path, this.userHome ?? "")));
     };
     const count = rows.length === all.length ? `${all.length} checkouts` : `${rows.length}/${all.length} checkouts`;
-    return v_flex()
+    return dialogFrame(v_flex())
       .id("worktree")
       .track_focus(this.handle)
       .on_key_down((e, cx) => this.key(e, cx))
@@ -415,7 +415,7 @@ export default class Worktree extends View {
               : `Closes the space and deletes ${tilde(r.top, this.userHome)}. The branch stays.`
             : `A new space on a checkout in ${tilde(ROOT(this.userHome), this.userHome)}/${r.name}/. Pick an existing branch, or type a name to create one from here.`;
     const blocked = !r || (remove && !r.linked);
-    return v_flex()
+    return dialogFrame(v_flex())
       .id("worktree")
       .track_focus(this.handle)
       .on_key_down((e, cx) => this.key(e, cx))

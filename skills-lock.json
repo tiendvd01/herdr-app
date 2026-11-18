@@ -1,6 +1,13 @@
 {
   "version": 2,
   "skills": {
+    "mermaid-diagrams": {
+      "source": "veelenga/claude-mermaid",
+      "commit": "0be20ce9b355b5bdf94bd2381a3ebe6d953ea4d5",
+      "sourceType": "github",
+      "skillPath": "skills/mermaid-diagrams/SKILL.md",
+      "computedHash": "fcbbc73b9db31a39bfa534ac5dfb9979b847c88e4d13ba65ee918fc50ee2aad0"
+    },
     "playwright-cli": {
       "source": "microsoft/playwright-cli",
       "commit": "b21724888b8100b05ef8dee3a92f2bb03bf4dcde",

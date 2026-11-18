@@ -6,7 +6,7 @@ import { v_flex, h_flex, InputState, Input } from "gpui-base";
 import { props, closeOverlay, theme } from "herdr";
 import { dialogFor, initialValues, validate } from "./git.js";
 import { perform } from "./act.js";
-import { button, icon } from "./panel-ui.js";
+import { button, icon, dialogFrame } from "./panel-ui.js";
 
 export class Dialog {
   init(cx) {
@@ -54,7 +54,7 @@ export class Dialog {
   render() {
     const t = theme(), s = this.spec, danger = this.danger();
     const label = (text) => div().pt(14).pb(7).text_size(11.5).text_color(t.dim).child(text);
-    return v_flex().id("git-graph-dialog").track_focus(this.handle).size_full().min_h(0).p(18).bg(t.popover).text_color(t.foreground).text_size(12.8)
+    return dialogFrame(v_flex()).id("git-graph-dialog").track_focus(this.handle).size_full().min_h(0).p(18).bg(t.popover).text_color(t.foreground).text_size(12.8)
       .on_key_down((e, cx) => {
         if (e.key === "escape") closeOverlay(props().overlay);
         else if (e.key === "enter" && this.focusedInput < 0) this.confirm(cx);

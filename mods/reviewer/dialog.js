@@ -1,5 +1,5 @@
 // The send dialog of reviewer, opened as an overlay of the same mod:
-//   openOverlay({ mod: "reviewer", kind: "dialog", width, height, props: { dialog: true, title, context, sent } })
+//   openOverlay({ mod: "reviewer", kind: "dialog", frame: "none", width, height, props: { dialog: true, title, context, sent } })
 // (main.js hands the copy over to this class when props().dialog is set).
 // `context` is text the caller already formatted (a file, lines, a hunk);
 // `title` is the short label at the top; `sent` (optional) is a shared key
@@ -12,7 +12,7 @@
 // Enter or cmd-enter sends, Esc closes. Commands: "reviewer.send", "reviewer.close".
 import { div } from "gpui-kit";
 import { v_flex, h_flex, TextareaState, Textarea, Popover } from "gpui-base";
-import { icon, iconButton, button } from "./panel-ui.js";
+import { icon, iconButton, button, dialogFrame } from "./panel-ui.js";
 import { agentArgv } from "./project-skills.js";
 import { spaceFolder } from "./space-folder.js";
 import { agents, focused, spaces, knownAgents, hc, run, notify, props, closeOverlay, theme, settings, nextCommand, setShared } from "herdr";
@@ -118,7 +118,7 @@ export class Dialog {
       .when(opens, (e) => e.cursor_pointer().hover((s) => s.bg(t.hover)))
       .child(dot(a)).child(div().text_size(12).child(`${name(a)} · ${a.tab_name}`)).child(div().text_size(10.5).text_color(t.dim).child(a.status))
       .when(opens, (e) => e.child(icon("chevron-down", 12).text_color(t.dim)));
-    return v_flex().id("ask-agent").track_focus(this.handle)
+    return dialogFrame(v_flex()).id("ask-agent").track_focus(this.handle)
       .on_key_down((e, cx) => {
         if (e.key === "escape") { this.close(); cx.stop_propagation(); }
         else if (e.key === "enter" && (e.modifiers?.platform || e.modifiers?.control)) { this.send(cx); cx.stop_propagation(); }

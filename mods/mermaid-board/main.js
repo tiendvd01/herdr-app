@@ -9,7 +9,7 @@ import { props, theme, settings, appHome, exec, notify, closeOverlay } from "her
 import * as fs from "fs/promises";
 import { Markdown } from "./markdown.js";
 import { Viewer } from "./diagram-viewer.js";
-import { icon, iconButton, button, textButton } from "./panel-ui.js";
+import { icon, iconButton, button, textButton, dialogFrame } from "./panel-ui.js";
 
 const DIR = () => `${appHome()}/data/mermaid-board/library`;
 const SAMPLE = "flowchart LR\n  A[Paste] --> B[Preview] --> C[Save]";
@@ -149,7 +149,7 @@ export default class MermaidBoard extends View {
       .child(button("mb-new", "New", (_e, cx) => this.fresh(cx)))
       .child(iconButton("mb-close", "close", "Close (Esc)", () => this.close()));
 
-    return v_flex().id("mermaid-board").track_focus(this.handle).size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(12.5)
+    return dialogFrame(v_flex()).id("mermaid-board").track_focus(this.handle).size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(12.5)
       .on_key_down((e, cx) => {
         if (e.key === "escape") { this.close(); cx.stop_propagation(); }
         else if (e.key === "s" && (e.modifiers?.platform || e.modifiers?.control)) { this.save(cx); cx.stop_propagation(); }

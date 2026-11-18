@@ -5,7 +5,7 @@
 import { div } from "gpui-kit";
 import { v_flex, h_flex, TextView } from "gpui-base";
 import { props, shared, setShared, closeOverlay, openOverlay, theme, settings } from "herdr";
-import { button, textButton } from "./panel-ui.js";
+import { button, textButton, dialogFrame } from "./panel-ui.js";
 
 export const VERSION = "0.3.3";
 const CHECK = true;
@@ -49,7 +49,7 @@ export async function check() {
 }
 
 export function openUpdate() {
-  openOverlay({ mod: "git-graph", kind: "dialog", width: 460, height: 400, props: { role: "update" } });
+  openOverlay({ mod: "git-graph", kind: "dialog", frame: "none", width: 460, height: 400, props: { role: "update" } });
 }
 
 // The update window, opened with props { role: "update" }.
@@ -61,7 +61,7 @@ export class Update {
 
   render() {
     const t = theme(), latest = state().latest, close = () => closeOverlay(props().overlay);
-    return v_flex().id("git-graph-update").track_focus(this.handle).size_full().min_h(0).p(18).bg(t.popover).text_color(t.foreground).text_size(12.8)
+    return dialogFrame(v_flex()).id("git-graph-update").track_focus(this.handle).size_full().min_h(0).p(18).bg(t.popover).text_color(t.foreground).text_size(12.8)
       .on_key_down((e, cx) => { if (e.key === "escape") { close(); cx.stop_propagation(); } })
       .child(h_flex().items_center().child(div().flex_1().text_size(15).font_semibold().child(`Git Graph ${latest?.tag ?? ""} is out`))
         .child(div().text_size(11).text_color(t.dim).child("Esc")))

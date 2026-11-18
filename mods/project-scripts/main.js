@@ -2,6 +2,7 @@
 // worktree of that repo (the watcher lives in status-usage/postscripts.js).
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, EditorState, Editor } from "gpui-base";
+import { dialogFrame } from "./panel-ui.js";
 import { theme, spaces, exec, readTextFile, writeTextFile, closeOverlay, props, home, settings } from "herdr";
 
 export const TEMPLATE = `#!/bin/sh
@@ -71,7 +72,7 @@ export default class ProjectScripts extends View {
     const btn = (id, label, fn, primary) => div().id(id).px(10).py(4).rounded(5).border(1).border_color(t.border)
       .text_size(12).cursor_pointer().when(primary, (el) => el.bg(t.solid).text_color(t.solid_foreground))
       .hover((s) => s.bg(primary ? t.solid : t.raised)).on_click(fn).child(label);
-    return v_flex().id("ps-root").size_full().bg(t.popover).text_color(t.foreground).text_size(12.5)
+    return dialogFrame(v_flex()).id("ps-root").size_full().bg(t.popover).text_color(t.foreground).text_size(12.5)
       .child(h_flex().px(14).py(10).gap(8).items_center().border_b(1).border_color(t.border)
         .child(div().flex_1().font_semibold().text_size(14).child("Post-create script"))
         .child(div().text_color(t.muted).child("runs in each new worktree of the project")))
