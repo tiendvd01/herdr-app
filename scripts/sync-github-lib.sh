@@ -56,4 +56,4 @@ sync lib/claude-memory.js mods/project-settings/claude-memory.js
 # Claude's saved threads of a folder: list, summaries, live map, delete (Threads panel; spec 031).
 sync lib/claude-threads.js mods/threads/claude-threads.js
 # A tab's label: the agent's live session title for tabs named after the program (tab bar + sidebar; spec 032).
-sync lib/tab-title.js mods/my-tabs/tab-title.js mods/my-agents/tab-title.js
+sync lib/tab-title.js mods/my-tabs/tab-title.js mods/my-agents/tab-title.js mods/processes/tab-title.js

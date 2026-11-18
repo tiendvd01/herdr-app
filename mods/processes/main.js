@@ -1,8 +1,19 @@
 import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { theme, shared, setShared, run, exec, hc, notify, closeOverlay, props, terminals } from "herdr";
+import { theme, shared, setShared, run, exec, hc, notify, closeOverlay, props, terminals, spaces, panes } from "herdr";
+import { tabTitle, clean } from "./tab-title.js";
 import { dialogFrame } from "./panel-ui.js";
 import { mem, readTotals, cpuText, ramText, hot, pct } from "./totals.js";
+
+// One name per session, the same as the tab bar and sidebar (spec 033). The second line is the
+// space only: a chosen tab name is already the name shown, an automatic one adds nothing.
+function named(se) {
+  const space = spaces().find((x) => x.id === se.space);
+  const tab = space?.tabs.find((x) => x.id === se.tab);
+  const titles = shared("session.titles")?.[se.address];
+  if (!tab) return { ...se, title: titles?.custom || titles?.ai || clean(se.title) || titles?.first || "Claude Code" };
+  return { ...se, title: tabTitle(tab, panes(), titles), where: space.name };
+}
 
 const age = (s) => {
   if (s >= 3600) return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
@@ -163,7 +174,7 @@ hc send --force "$addr" /compact
     const d = shared("procs");
     // Only sessions whose terminal still exists, so a stale snapshot never shows a closed one.
     const live = new Set(terminals().map((x) => x.address));
-    const sessions = (d?.sessions ?? []).filter((s) => live.has(s.address) && !this.removed.has(s.address));
+    const sessions = (d?.sessions ?? []).filter((s) => live.has(s.address) && !this.removed.has(s.address)).map(named);
     const tasks = sessions.flatMap((s) => s.items);
     const all = sessions.flatMap((s) => s.items);
     const cpu = all.reduce((a, i) => a + i.cpu, 0);

@@ -4,7 +4,7 @@
 import { View, div, image, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { exec, home, agents, terminals, panes, focused, spaces, run, theme, shared, setShared, setAgentOrder, openOverlay, closeOverlay, props, window, layout } from "herdr";
-import { tabTitle } from "./tab-title.js";
+import { tabTitle, clean, parseTitles, mergeTitles, TITLES_JQ } from "./tab-title.js";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -74,8 +74,6 @@ export default class Agents extends View {
     this.changed = JSON.parse(localStorage.getItem("changed") ?? "{}");
     this.pins = JSON.parse(localStorage.getItem("pins") ?? "[]");
     cx.timer.every(30000, (cx) => cx.notify());
-    this.first = {};
-    this.file = {};
     // Each space folder's repository: { repo, linked } (linked: a worktree), null: not git.
     this.git = {};
     cx.timer.every(5000, (cx) => this.scan(cx));
@@ -120,33 +118,28 @@ export default class Agents extends View {
     return out;
   }
 
-  // The first message of each Claude thread, read from its transcript.
+  // Each Claude session's saved titles (rename, Claude's own, first message), read from its
+  // transcript and shared as `session.titles` so the tab bar and Sessions dialog use the same
+  // name (spec 033). Shared only when it changed: setShared re-renders every mod.
   scan(cx) {
     cx.spawn(async (cx) => {
       let changed = await this.readRepos();
+      const next = {};
       for (const a of agents().filter((x) => x.app === "claude-code")) {
         const pid = terminals().find((t) => t.address === a.address)?.foreground?.pid;
         if (!pid) continue;
         try {
-          // Same order as the session list: custom title, then AI title, then first message.
-          if (!this.file[a.address] || this.file[a.address].pid !== pid) {
-            const meta = JSON.parse((await exec("cat", [`${home()}/.claude/sessions/${pid}.json`])).stdout);
-            const dir = meta.cwd.replace(/[^A-Za-z0-9]/g, "-");
-            this.file[a.address] = { pid, path: `${home()}/.claude/projects/${dir}/${meta.sessionId}.jsonl` };
-          }
-          const file = this.file[a.address].path;
-          const jq = '(select(.type=="custom-title") | "C\\t" + (.customTitle // "")), (select(.type=="ai-title") | "A\\t" + (.aiTitle // "")), (select(.type=="user" and (.isMeta|not)) | .message.content | if type=="string" then . else ([.[]|select(.type=="text")|.text]|join(" ")) end | select(length>0 and (startswith("<")|not) and (startswith("[")|not)) | "F\\t" + (.[0:200] | gsub("[[:space:]]+";" ")))';
-          const r = await exec("jq", ["-r", jq, file]);
-          let c = "", ai = "", f = "";
-          for (const l of r.stdout.split("\n")) {
-            const v = l.slice(2).trim();
-            if (!v) continue;
-            if (l[0] === "C") c = v; else if (l[0] === "A") ai = v; else if (l[0] === "F" && !f) f = v;
-          }
-          const line = c || ai || f;
-          if (line && this.first[a.address] !== line) { this.first[a.address] = line; changed = true; }
-        } catch (e) { /* transcript not there yet */ }
+          // Read every round: /clear moves the same process to a new session id.
+          const meta = JSON.parse((await exec("cat", [`${home()}/.claude/sessions/${pid}.json`])).stdout);
+          const path = `${home()}/.claude/projects/${meta.cwd.replace(/[^A-Za-z0-9]/g, "-")}/${meta.sessionId}.jsonl`;
+          next[a.address] = mergeTitles(shared("session.titles")?.[a.address], parseTitles((await exec("jq", ["-r", TITLES_JQ, path])).stdout));
+        } catch (e) {
+          // Transcript not there yet, or a read failed: keep what was known, so names don't flicker.
+          const old = shared("session.titles")?.[a.address];
+          if (old) next[a.address] = old;
+        }
       }
+      if (JSON.stringify(next) !== JSON.stringify(shared("session.titles") ?? {})) { setShared("session.titles", next); changed = false; }
       if (changed) cx.notify();
     });
   }
@@ -358,9 +351,9 @@ export default class Agents extends View {
     // otherwise read the same.
     const tabs = spaces().flatMap(s => s.tabs);
     const label = (a) => {
-      if (this.first?.[a.address]) return this.first[a.address];
+      const titles = shared("session.titles")?.[a.address];
       const tab = tabs.find(tab => tab.id === a.tab);
-      return tab ? tabTitle(tab, panes()) : a.title || a.program?.name || "";
+      return tab ? tabTitle(tab, panes(), titles) : titles?.custom || titles?.ai || clean(a.title) || titles?.first || a.program?.name || "";
     };
     const detail = new Map(list.map(a => [a.address, /^\d+$/.test(label(a)) ? null : label(a)]));
     const seen = {};

@@ -25,7 +25,7 @@ const agoSec = (s) => {
   const m = Math.round((Date.now() / 1000 - s) / 60);
   return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`;
 };
-import { projectOf, scanLibrary, readSelection, writeSelection, syncBundle, pruneLegacy, estimate, skillsDir, mcpDir } from "./project-skills.js";
+import { projectOf, scanLibrary, readSelection, writeSelection, syncBundle, pruneLegacy, estimate, skillsDir, mcpDir, addSource, removeSource } from "./project-skills.js";
 
 const TEMPLATE = `#!/bin/sh
 # Runs once in each new worktree of this project (cwd = the worktree).
@@ -110,6 +110,7 @@ export default class ProjectSettings extends View {
     this.skBusy = false;
     this.search = InputState.new({ placeholder: "Search skills and MCP servers…" });
     this.search.on("change", (_e, cx) => cx.notify());
+    this.srcPath = InputState.new({ placeholder: "Add a skill folder, e.g. ~/Documents/team/skills" });
     this.openReq = null; // last "open the Skills tab" request seen (shared "project-settings.tab")
     // Index tab (spec 026): CodeGraph state of the selected project; loaded when the tab is shown.
     this.cg = null;
@@ -240,10 +241,10 @@ export default class ProjectSettings extends View {
   }
 
   async loadSkills(r) {
-    const [lib, sel] = await Promise.all([scanLibrary().catch(() => ({ skills: [], mcp: [], global: [] })), readSelection(r)]);
+    const [lib, sel] = await Promise.all([scanLibrary(r).catch(() => ({ sources: [], skills: [], hidden: [], mcp: [], global: [] })), readSelection(r)]);
     if (this.sel !== r) return;
     this.lib = lib;
-    this.sk = { skills: sel.skills, mcp: sel.mcp };
+    this.sk = { skills: sel.skills, mcp: sel.mcp, sources: sel.sources };
     this.skRaw = sel.raw;
   }
 
@@ -288,9 +289,49 @@ export default class ProjectSettings extends View {
     });
   }
 
+  // Add or remove a skill source folder (spec 034), then rescan and re-sync this project.
+  editSource(kind, path, cx) {
+    const r = this.sel;
+    if (!r || this.skBusy) return;
+    this.skBusy = true;
+    cx.spawn(async (cx) => {
+      const res = kind === "add" ? await addSource(r, path) : await removeSource(r, path);
+      if (res.ok) {
+        if (kind === "add") this.srcPath.set_value("");
+        await this.loadSkills(r);
+        if (this.sel === r && this.lib) await syncBundle(r, this.lib).catch(() => {});
+        this.skMsg = kind === "add" ? `Added ${path.trim()}`
+          : `Removed ${path}` + (res.on ? ` · ${res.on} skill${res.on === 1 ? "" : "s"} on here came from it (no longer attached)` : "");
+      } else {
+        await this.loadSkills(r);
+        this.skMsg = `Failed: ${res.error}. Reloaded the saved settings.`;
+      }
+      this.skBusy = false;
+      cx.notify();
+    });
+  }
+
+  sourcesView(t, btn) {
+    const sources = this.lib?.sources ?? [];
+    const open = (abs) => exec("code", [abs]).then((r) => { if (r.code !== 0) exec("open", [abs]); }).catch(() => exec("open", [abs]));
+    return v_flex().gap(2).p(6).rounded(8).border(1).border_color(t.border)
+      .child(div().px(4).pb(2).text_size(11).text_color(t.dim).child(`SOURCES OF THIS PROJECT (${sources.length}) · first one wins a name`))
+      .children(sources.map((s, i) => h_flex().id(`src-${i}`).gap(8).items_center().px(4).py(3).rounded(6).hover((st) => st.bg(t.hover))
+        .child(div().size(7).flex_none().rounded(4).bg(s.missing ? t.blocked : t.done))
+        .child(div().flex_1().min_w(0).truncate().text_color(t.foreground).child(s.path))
+        .child(div().flex_none().text_size(11.5).text_color(s.missing ? t.blocked : t.muted)
+          .child(s.missing ? "missing" : `${s.count} skill${s.count === 1 ? "" : "s"}${s.own ? " · Herdr" : ""}`))
+        .when(!s.missing, (el) => el.child(btn(`src-open-${i}`, "Open", () => open(s.abs))))
+        .when(!s.own, (el) => el.child(btn(`src-rm-${i}`, "Remove", (_e, cx) => this.editSource("remove", s.path, cx))))))
+      .child(h_flex().gap(8).items_center().pt(4)
+        .child(Input.new(this.srcPath).flex_1().h(28).px(10).items_center().rounded(6).border(1).border_color(t.border).bg(t.background).text_color(t.foreground))
+        .child(btn("src-add", "Add", (_e, cx) => { const p = this.srcPath.value().trim(); if (p) this.editSource("add", p, cx); })));
+  }
+
   skillsView(t, btn) {
     const lib = this.lib;
     if (!lib) return div().text_color(t.muted).child("Loading skills…");
+    const many = (lib.sources ?? []).length > 1;
     const q = this.search.value().trim().toLowerCase();
     const match = (x) => !q || x.name.toLowerCase().includes(q) || (x.description ?? "").toLowerCase().includes(q);
     const onSkills = lib.skills.filter((s) => !s.invalid && this.sk.skills.includes(s.name));
@@ -302,36 +343,40 @@ export default class ProjectSettings extends View {
       .on_click(fn).child(div().size(on ? 13 : 11).rounded(7).bg(on ? t.solid_foreground : t.dim));
     const row = (kind, x) => {
       const on = this.sk[kind].includes(x.name);
-      const note = x.invalid ? `invalid: ${x.invalid}` : x.globalDuplicate ? "also in global — loaded twice if on" : "";
-      return h_flex().id(`sk-${kind}-${x.name}`).gap(10).items_center().px(10).py(6).rounded(7).hover((s) => s.bg(t.hover))
-        .child(div().size(7).flex_none().rounded(4).bg(x.invalid ? t.blocked : on ? t.done : t.dim))
+      const note = x.hiddenBy ? `hidden by ${x.hiddenBy}` : x.invalid ? `invalid: ${x.invalid}` : x.globalDuplicate ? "also in global — loaded twice if on" : "";
+      const off = Boolean(x.invalid || x.hiddenBy);
+      return h_flex().id(`sk-${kind}-${x.hiddenBy ? "hidden-" : ""}${x.name}`).gap(10).items_center().px(10).py(6).rounded(7).hover((s) => s.bg(t.hover))
+        .child(div().size(7).flex_none().rounded(4).bg(x.invalid ? t.blocked : on && !x.hiddenBy ? t.done : t.dim))
         .child(v_flex().flex_1().min_w(0)
-          .child(div().font_semibold().truncate().child(x.name))
+          .child(h_flex().gap(8).items_center().min_w(0)
+            .child(div().font_semibold().truncate().text_color(x.hiddenBy ? t.muted : t.foreground).child(x.name))
+            .when(many && Boolean(x.source), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(x.source))))
           .when(Boolean(x.description), (el) => el.child(div().text_size(11.5).text_color(t.muted).truncate().child(x.description)))
           .when(Boolean(note), (el) => el.child(div().text_size(11.5).text_color(x.invalid ? t.blocked : t.attention ?? t.muted).child(note))))
-        .when(!x.invalid, (el) => el.child(toggle(`sw-${kind}-${x.name}`, on, (_e, cx) => this.toggleSkill(kind, x.name, cx))));
+        .when(!off, (el) => el.child(toggle(`sw-${kind}-${x.name}`, on, (_e, cx) => this.toggleSkill(kind, x.name, cx))));
     };
     const section = (title, items, body) => v_flex().gap(2)
       .child(div().px(10).pt(6).pb(2).text_size(11).text_color(t.dim).child(`${title} (${items.length})`))
       .children(items.map(body));
-    const skills = lib.skills.filter(match), mcp = lib.mcp.filter(match), global = lib.global.filter(match);
+    const skills = lib.skills.filter(match), hidden = (lib.hidden ?? []).filter(match), mcp = lib.mcp.filter(match), global = lib.global.filter(match);
     return v_flex().flex_1().min_h(0).gap(10)
       .child(h_flex().gap(8).items_start()
         .child(v_flex().flex_1().min_w(0).gap(4)
           .child(div().font_semibold().child("Skills"))
-          .child(div().text_color(t.muted).whitespace_normal().child("Skills and MCP servers turned on here load only in Claude sessions started for this project from the + menu (Claude · N skills). Library:"))
-          .child(div().text_size(11.5).text_color(t.dim).truncate().child(`${skillsDir().replace(home(), "~")}  ·  ${mcpDir().replace(home(), "~")}`)))
-        .child(btn("sk-open", "Open folder", () => exec("code", [skillsDir()]).then((r) => { if (r.code !== 0) exec("open", [skillsDir()]); }).catch(() => exec("open", [skillsDir()]))))
+          .child(div().text_color(t.muted).whitespace_normal().child("Skills and MCP servers turned on here load only in Claude sessions started for this project from the + menu (Claude · N skills). Skills come from the sources below; MCP servers from:"))
+          .child(div().text_size(11.5).text_color(t.dim).truncate().child(mcpDir().replace(home(), "~"))))
         .child(btn("sk-refresh", this.skBusy ? "Refreshing…" : "Refresh", (_e, cx) => this.refreshSkills(cx))))
       .child(h_flex().gap(16).text_size(12)
         .child(div().text_color(t.foreground).child(`On for this project: ${mine.count} skill${mine.count === 1 ? "" : "s"} · ${onMcp.length} MCP · ~${mine.tokens.toLocaleString()} tokens`))
         .child(div().text_color(t.muted).child(`Global: ${glob.count} skills · ~${glob.tokens.toLocaleString()} tokens`))
         .child(div().flex_1().text_color(this.skMsg.startsWith("Failed") ? t.blocked : t.muted).truncate().child(this.skMsg)))
+      .child(this.sourcesView(t, btn))
       .child(Input.new(this.search).h(30).px(10).items_center().rounded(6).border(1).border_color(t.border).bg(t.background).text_color(t.foreground))
       .child(v_flex().id("sk-list").flex_1().min_h(0).overflow_y_scrollbar().gap(8)
         .when(!lib.skills.length, (el) => el.child(v_flex().gap(8).p(12).rounded(8).border(1).border_color(t.border)
           .child(div().text_color(t.muted).whitespace_normal().child(`Put skill folders in ${skillsDir().replace(home(), "~")}/ (each with SKILL.md), and MCP servers as one JSON file each in ${mcpDir().replace(home(), "~")}/ (secrets as \${VAR}).`))))
         .when(skills.length > 0, (el) => el.child(section("SKILLS", skills, (x) => row("skills", x))))
+        .when(hidden.length > 0, (el) => el.child(section("HIDDEN · same name in an earlier source", hidden, (x) => row("skills", x))))
         .when(mcp.length > 0, (el) => el.child(section("MCP SERVERS", mcp, (x) => row("mcp", x))))
         .when(global.length > 0, (el) => el.child(section("GLOBAL · read-only, loaded everywhere (plus installed plugins)", global, (x) =>
           v_flex().px(10).py(5).child(div().text_color(t.muted).truncate().child(x.name)).child(div().text_size(11.5).text_color(t.dim).truncate().child(x.description))))));

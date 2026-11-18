@@ -63,16 +63,22 @@ const codeFont = () => (typeof settings().font_family === "string" && settings()
 const codeSize = () => Number(props()?.font_size) || Math.max(9, (Number(settings().font_size) || 14) - 1);
 // Below this diff width a split view falls back to one column.
 const SPLIT_MIN = 640;
-// Cuts tokenized spans into lines of at most `cpl` characters (a wrapped row).
+// Columns a character takes: CJK and fullwidth characters are drawn about twice
+// as wide as a monospace cell (fallback font), a tab as 4.
+const WIDE = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-\u9fff\ua960-\ua97f\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6\u{1f300}-\u{1faff}\u{20000}-\u{3fffd}]/u;
+const colOf = (c) => c === "\t" ? 4 : WIDE.test(c) ? 2 : 1;
+const colsOf = (text) => { let n = 0; for (const c of text) n += colOf(c); return n; };
+// Cuts tokenized spans into lines of at most `cpl` columns (a wrapped row).
 function chunk(spans, cpl) {
   const out = [[]]; let n = 0;
   for (const s of spans) {
-    let text = s.text;
-    while (text.length) {
-      if (n === cpl) { out.push([]); n = 0; }
-      const piece = text.slice(0, cpl - n);
-      out[out.length - 1].push({ text: piece, cls: s.cls }); n += piece.length; text = text.slice(piece.length);
+    let piece = "";
+    for (const c of s.text) {
+      const w = colOf(c);
+      if (n + w > cpl && n > 0) { if (piece) out[out.length - 1].push({ text: piece, cls: s.cls }); out.push([]); n = 0; piece = ""; }
+      piece += c; n += w;
     }
+    if (piece) out[out.length - 1].push({ text: piece, cls: s.cls });
   }
   return out;
 }
@@ -375,7 +381,7 @@ export default class Changes extends View {
   measure() {
     const ch = charOf(this.fontSize), digits = String(Math.max(0, ...this.rows.map((r) => r.number ?? 0))).length;
     this.gutter = Math.max(30, Math.ceil(digits * ch + 10));
-    this.maxText = Math.ceil(Math.max(0, ...this.rows.map((r) => r.text.replace(/\t/g, "    ").length)) * ch) + 12;
+    this.maxText = Math.ceil(Math.max(0, ...this.rows.map((r) => colsOf(r.text))) * ch) + 12;
     this.halfW = Math.max(Math.floor(this.areaW / 2), this.gutter + 18 + this.maxText);
     this.diffWidth = this.wrap ? 0 : this.splitOn() ? this.halfW * 2 : Math.max(300, this.gutter + 36 + this.maxText);
     this.rebuild();
@@ -390,7 +396,7 @@ export default class Changes extends View {
   linesOf(i, cpl) {
     if (i == null || !this.wrap) return 1;
     const r = this.rows[i];
-    return r.kind === "@" || r.kind === "" ? 1 : Math.max(1, Math.ceil(r.text.replace(/\t/g, "    ").length / cpl));
+    return r.kind === "@" || r.kind === "" ? 1 : chunk([{ text: r.text, cls: "" }], cpl).length;
   }
   setView(change, cx) {
     Object.assign(this, change);
@@ -719,7 +725,7 @@ export default class Changes extends View {
     const tint = kind === "+" ? colors.added : kind === "-" ? colors.removed : null;
     const lines = this.wrap ? chunk(spans, this.cpl()) : [spans];
     const code = (parts) => h_flex().h(this.row).items_center().whitespace_nowrap().children(parts.map((s) => s.cls ? div().text_color(colors[s.cls] ?? t.foreground).child(s.text) : div().child(s.text)));
-    return box(h_flex().h_full().items_start().border_l(left || !this.splitOn() ? 2 : 0).border_color(on ? t.accent : mark ? t.accent + "66" : NONE)
+    return box(h_flex().h_full().items_start().overflow_hidden().border_l(left || !this.splitOn() ? 2 : 0).border_color(on ? t.accent : mark ? t.accent + "66" : NONE)
       .when(Boolean(tint), (e) => e.bg(tint + (on ? "5c" : "30")))
       .when(!tint && on, (e) => e.bg(t.selected))
       .child(div().w(this.gutter).h_full().flex_none().text_right().pr(4).when(Boolean(tint), (e) => e.bg(tint + "26")).text_color(on ? t.foreground : tint ? t.foreground + "cc" : t.dim).child(number === undefined ? "" : String(number)))
