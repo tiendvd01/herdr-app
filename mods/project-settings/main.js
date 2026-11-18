@@ -8,6 +8,23 @@ import { spaceFolder } from "./space-folder.js";
 import { btn as kitBtn, button, dialogFrame, card } from "./panel-ui.js";
 import { loadPorts as loadPortsOf, shortHome } from "./ports.js";
 import { indexState, runIndex, running, ensureExcluded } from "./codegraph.js";
+import { INDEX, TYPES, memoryDir, memoryStamp, loadMemory, saveNote, deleteNote, addToIndex, dropDead, addNote, validName } from "./claude-memory.js";
+
+// Sections of the second sidebar (spec 030): key, label, hint.
+const SECTIONS = [
+  ["ports", "Ports", "Listening ports per worktree"],
+  ["script", "Worktree script", "Runs in each new worktree"],
+  ["prompt", "Summary prompt", "Issues panel Summarize"],
+  ["skills", "Skills", "Skills and MCP for Claude"],
+  ["index", "Index", "CodeGraph codebase index"],
+  ["memory", "Memory", "What Claude remembers"],
+];
+
+const memIo = { read: (p) => readTextFile(p), write: (p, text, old) => writeTextFile(p, text, old) };
+const agoSec = (s) => {
+  const m = Math.round((Date.now() / 1000 - s) / 60);
+  return m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`;
+};
 import { projectOf, scanLibrary, readSelection, writeSelection, syncBundle, pruneLegacy, estimate, skillsDir, mcpDir } from "./project-skills.js";
 
 const TEMPLATE = `#!/bin/sh
@@ -99,7 +116,26 @@ export default class ProjectSettings extends View {
     this.cgFor = null;
     this.cgErr = "";
     this.cgMsg = "";
+    // Memory tab (spec 029): Claude's auto-memory of the selected project's main checkout.
+    this.mem = null;      // loadMemory() result
+    this.memFor = null;   // its folder
+    this.memSel = null;   // selected note file (or INDEX)
+    this.memBase = null;  // the selected note's text as loaded (save's expected text)
+    this.memMsg = "";
+    this.memStale = false;
+    this.memConfirm = null; // armed two-step action key ("delete:<file>", "discard:<key>")
+    this.memType = "all";
+    this.memNew = null;   // { type } while the New note form is shown
+    this.memEditor = EditorState.new({ language: "markdown", value: "", line_numbers: false, soft_wrap: true, font_family: settings().font_family });
+    this.memEditor.on("change", (_e, cx) => { if (this.memEditor.value() !== this.memBase) { this.memMsg = ""; this.memConfirm = null; } cx.notify(); });
+    this.memQ = InputState.new({ placeholder: "Search notes…" });
+    this.memQ.on("change", (_e, cx) => cx.notify());
+    this.memName = InputState.new({ placeholder: "name, e.g. deploy-steps" });
+    this.memName.on("change", (_e, cx) => { this.memMsg = ""; cx.notify(); });
+    this.memDesc = InputState.new({ placeholder: "One-line description (shown in the index)" });
+    this.memDesc.on("change", (_e, cx) => cx.notify());
     this.scan(cx);
+    cx.timer.every(4000, (cx) => { if (this.tab === "memory") this.loadMem(cx); });
     cx.timer.every(5000, (cx) => this.scan(cx));
     cx.timer.every(3000, (cx) => this.refreshPorts(cx));
   }
@@ -395,6 +431,229 @@ export default class ProjectSettings extends View {
       .when(Boolean(this.cgMsg) && !this.cgErr, (el) => el.child(div().text_color(t.muted).child(this.cgMsg)));
   }
 
+  // ---- Memory tab (spec 029) ----
+
+  memDir() { return this.sel ? memoryDir(home(), this.sel.main) : null; }
+  memDirty() { return !!this.memSel && this.memSel !== INDEX && this.memEditor.value() !== this.memBase; }
+
+  // Two-step guard for actions that would drop unsaved edits: the first click arms, the second runs.
+  memGuard(key, fn, cx) {
+    if (this.tab !== "memory" || !this.memDirty() && !(this.memNew && this.memEditor.value().trim()) || this.memConfirm === `discard:${key}`) {
+      this.memConfirm = null;
+      return fn(cx);
+    }
+    this.memConfirm = `discard:${key}`;
+    this.memMsg = "Unsaved changes. Click again to discard them.";
+    cx.notify();
+  }
+
+  // (Re)read the folder; skipped when nothing changed on disk (mtime list) unless forced.
+  loadMem(cx, force) {
+    const dir = this.memDir();
+    if (!dir) return;
+    if (this.memBusy) { if (force) this.memAgain = true; return; }
+    this.memBusy = true;
+    cx.spawn(async (cx) => {
+      try {
+        const fresh = this.memFor !== dir || force;
+        if (fresh || (await memoryStamp(dir, exec)) !== this.mem?.stamp) {
+          const m = await loadMemory(dir, exec, memIo);
+          if (this.memDir() === dir) {
+            if (this.memFor !== dir) { this.memSel = null; this.memBase = null; this.memNew = null; this.memConfirm = null; this.memMsg = ""; }
+            this.mem = m; this.memFor = dir; this.memErr = "";
+            // An open note follows the disk while it has no edits of its own.
+            const n = m.notes.find((x) => x.file === this.memSel);
+            if (this.memSel && this.memSel !== INDEX && (this.memBase == null || !this.memDirty())) {
+              if (!n) { this.memSel = null; this.memBase = null; }
+              else if (n.text !== this.memBase) { this.memBase = n.text; this.memEditor.set_value(n.text); this.memStale = false; }
+            }
+          }
+        }
+      } catch (e) { if (this.memDir() === dir) { this.memErr = String(e?.message ?? e); this.memFor = dir; } }
+      this.memBusy = false;
+      if (this.memAgain) { this.memAgain = false; this.loadMem(cx, true); }
+      cx.notify();
+    });
+  }
+
+  memOpen(file, cx) {
+    this.memGuard(`open:${file}`, (cx) => {
+      const n = this.mem?.notes.find((x) => x.file === file);
+      this.memNew = null; this.memSel = file; this.memStale = false; this.memMsg = "";
+      this.memBase = n?.text ?? null;
+      if (n) this.memEditor.set_value(n.text);
+      cx.notify();
+    }, cx);
+  }
+
+  memRun(work, done, cx) {
+    const dir = this.memDir();
+    if (!dir) return;
+    cx.spawn(async (cx) => {
+      try { const msg = await work(dir); this.memMsg = msg ?? ""; this.memErr = ""; done?.(); }
+      catch (e) { this.memMsg = `Failed: ${String(e?.message ?? e)}`; }
+      this.loadMem(cx, true);
+      cx.notify();
+    });
+  }
+
+  memSave(cx) {
+    const file = this.memSel, text = this.memEditor.value();
+    this.memRun(async (dir) => {
+      try { await saveNote(dir, file, text, this.memBase, memIo); }
+      catch (e) { if (/Changed on disk/.test(e.message)) this.memStale = true; throw e; }
+      this.memBase = text; this.memStale = false;
+      return "Saved";
+    }, null, cx);
+  }
+
+  // Throw away edits and take the note as it is on disk now.
+  memReload(cx) {
+    const dir = this.memDir(), file = this.memSel;
+    cx.spawn(async (cx) => {
+      const text = await readTextFile(`${dir}/${file}`).catch(() => null);
+      if (text == null) { this.memSel = null; this.memBase = null; this.memMsg = "The note is gone from disk"; }
+      else { this.memBase = text; this.memEditor.set_value(text); this.memMsg = "Reloaded from disk"; }
+      this.memStale = false; this.memConfirm = null;
+      cx.notify();
+    });
+  }
+
+  memDelete(file, cx) {
+    if (this.memConfirm !== `delete:${file}`) { this.memConfirm = `delete:${file}`; this.memMsg = ""; cx.notify(); return; }
+    this.memConfirm = null;
+    this.memRun(async (dir) => { await deleteNote(dir, file, exec, memIo); return `Deleted ${file} and its index line`; },
+      () => { if (this.memSel === file) { this.memSel = null; this.memBase = null; } }, cx);
+  }
+
+  memStartNew(cx) {
+    this.memGuard("new", (cx) => {
+      this.memNew = { type: "project" }; this.memSel = null; this.memBase = null; this.memMsg = "";
+      this.memName.set_value(""); this.memDesc.set_value(""); this.memEditor.set_value("");
+      cx.notify();
+    }, cx);
+  }
+
+  memCreate(cx) {
+    const note = { name: this.memName.value().trim(), description: this.memDesc.value().trim(), type: this.memNew?.type ?? "project", body: this.memEditor.value() };
+    const bad = validName(note.name, this.mem?.notes.map((n) => n.file) ?? []);
+    if (bad) { this.memMsg = `Failed: ${bad}`; cx.notify(); return; }
+    let made = null;
+    this.memRun(async (dir) => { made = await addNote(dir, note, exec, memIo); return `Created ${made.file} and added it to the index`; },
+      () => { this.memNew = null; this.memSel = made.file; this.memBase = null; }, cx);
+  }
+
+  memoryView(t) {
+    const dir = this.memDir(), m = this.memFor === dir ? this.mem : null;
+    const sm = (id, label, action, kind = "secondary", extra = {}) => kitBtn(id, { kind, size: "sm", label, action, ...extra });
+    const head = h_flex().gap(8).items_start()
+      .child(v_flex().flex_1().min_w(0).gap(4)
+        .child(div().font_semibold().child("Claude memory"))
+        .child(div().text_color(t.muted).whitespace_normal().child("Notes Claude keeps about this project (worktrees share them). MEMORY.md is the index Claude loads each session: a note it does not link is never recalled."))
+        .child(div().text_size(11.5).text_color(t.dim).truncate().child(dir.replace(home(), "~"))))
+      .child(sm("mem-new", "New note", (_e, cx) => this.memStartNew(cx), "primary"))
+      .when(!!m?.exists, (el) => el.child(sm("mem-folder", "Open folder", () => exec("open", [dir]))))
+      .child(kitBtn("mem-reload", { kind: "icon", size: "sm", icon: "refresh", tip: "Reload", action: (_e, cx) => this.loadMem(cx, true) }));
+    const msg = this.memErr ? `Failed: ${this.memErr}` : this.memMsg;
+    const msgLine = div().text_size(12).truncate().text_color(msg.startsWith("Failed") ? t.blocked : t.muted).child(msg);
+    if (!m) return v_flex().flex_1().min_h(0).gap(12).child(head).child(div().text_color(t.muted).child(this.memErr ? msg : "Loading…"));
+
+    // Index problems: notes the index does not link, index lines to missing notes.
+    const problems = (m.unlisted.length || m.dead.length) ? card()
+      .child(div().font_semibold().text_color(t.attention ?? t.blocked).child(`Index needs attention (${m.unlisted.length + m.dead.length})`))
+      .children(m.unlisted.map((f) => h_flex().gap(8).items_center()
+        .child(div().flex_1().min_w(0).truncate().child(`${f} is not in MEMORY.md — Claude will not recall it`))
+        .child(sm(`mem-fix-${f}`, "Add to index", (_e, cx) => this.memRun(async (d) => { await addToIndex(d, f, memIo); return `Added ${f} to the index`; }, null, cx)))))
+      .children(m.dead.map((e) => h_flex().gap(8).items_center()
+        .child(div().flex_1().min_w(0).truncate().child(`MEMORY.md links ${e.file}, which does not exist`))
+        .child(sm(`mem-dead-${e.file}-${e.line}`, "Remove line", (_e, cx) => this.memRun(async (d) => { await dropDead(d, e.file, memIo); return `Removed the line to ${e.file}`; }, null, cx), "danger")))) : null;
+
+    // List: type chips, search, notes.
+    const q = this.memQ.value().trim().toLowerCase();
+    const count = (ty) => m.notes.filter((n) => ty === "all" || n.type === ty).length;
+    const types = ["all", ...TYPES, "unknown"].filter((ty) => ty === "all" || ty === this.memType || count(ty) > 0);
+    const shown = m.notes.filter((n) => (this.memType === "all" || n.type === this.memType)
+      && (!q || `${n.name}\n${n.description}\n${n.body}`.toLowerCase().includes(q)));
+    const unlisted = new Set(m.unlisted);
+    const row = (id, on, main, sub, tag, fn) => v_flex().id(id).px(10).py(6).rounded(7).cursor_pointer()
+      .when(on, (el) => el.bg(t.selected)).hover((s) => s.bg(t.hover)).on_click(fn)
+      .child(h_flex().gap(6).items_center()
+        .child(div().flex_1().min_w(0).font_semibold().truncate().child(main))
+        .when(Boolean(tag), (el) => el.child(div().flex_none().text_size(10.5).text_color(t.dim).child(tag))))
+      .child(div().text_size(11.5).text_color(t.muted).truncate().child(sub));
+    const list = v_flex().w(300).flex_none().min_h(0).gap(8)
+      .child(h_flex().gap(4).flex_wrap()
+        .children(types.map((ty) => kitBtn(`mem-ty-${ty}`, { kind: "chip", size: "sm", label: `${ty === "all" ? "All" : ty} ${count(ty)}`, on: this.memType === ty,
+          action: (_e, cx) => { this.memType = ty; cx.notify(); } }))))
+      .child(Input.new(this.memQ).h(28).px(10).items_center().rounded(6).border(1).border_color(t.border).bg(t.background).text_color(t.foreground))
+      .child(v_flex().id("mem-list").flex_1().min_h(0).overflow_y_scrollbar().gap(2)
+        .when(!!m.index, (el) => el.child(row("mem-index", this.memSel === INDEX, "MEMORY.md", `index · ${m.index.entries.length} link${m.index.entries.length === 1 ? "" : "s"}`, "index",
+          (_e, cx) => this.memGuard("index", (cx) => { this.memNew = null; this.memSel = INDEX; this.memMsg = ""; cx.notify(); }, cx))))
+        .when(!m.notes.length, (el) => el.child(div().p(10).text_color(t.muted).whitespace_normal()
+          .child(m.exists ? "No notes yet." : "Claude has no memory for this project yet. It saves notes here as you work, or add one with New note.")))
+        .when(m.notes.length > 0 && !shown.length, (el) => el.child(div().p(10).text_color(t.muted).child("No note matches.")))
+        .children(shown.map((n) => row(`mem-n-${n.file}`, this.memSel === n.file, n.name, n.description || "(no description)",
+          `${unlisted.has(n.file) ? "not in index · " : ""}${n.type} · ${agoSec(n.mtime)}`, (_e, cx) => this.memOpen(n.file, cx)))));
+
+    // Right side: the New note form, the index (read-only), or the selected note in the editor.
+    const editor = div().id("mem-editor").w_full().flex_1().min_h(120).border(1).border_color(t.border).rounded(8).overflow_hidden().child(Editor.new(this.memEditor).size_full());
+    const note = m.notes.find((n) => n.file === this.memSel);
+    let side;
+    if (this.memNew) {
+      const input = (st) => Input.new(st).h(28).px(10).items_center().rounded(6).border(1).border_color(t.border).bg(t.background).text_color(t.foreground);
+      side = v_flex().flex_1().min_w(0).min_h(0).gap(8)
+        .child(div().font_semibold().child("New note"))
+        .child(input(this.memName))
+        .child(input(this.memDesc))
+        .child(h_flex().gap(4).children(TYPES.map((ty) => kitBtn(`mem-nt-${ty}`, { kind: "chip", size: "sm", label: ty, on: this.memNew.type === ty,
+          action: (_e, cx) => { this.memNew = { ...this.memNew, type: ty }; cx.notify(); } }))))
+        .child(editor)
+        .child(h_flex().gap(8).items_center().child(div().flex_1().min_w(0).child(msgLine))
+          .child(sm("mem-cancel", "Cancel", (_e, cx) => { this.memNew = null; this.memMsg = ""; this.memConfirm = null; cx.notify(); }))
+          .child(sm("mem-create", "Create", (_e, cx) => this.memCreate(cx), "primary")));
+    } else if (this.memSel === INDEX && m.index) {
+      side = v_flex().flex_1().min_w(0).min_h(0).gap(8)
+        .child(div().font_semibold().child("MEMORY.md (index, loaded each session)"))
+        .child(div().id("mem-index-text").flex_1().min_h(0).overflow_y_scrollbar().p(10).rounded(8).border(1).border_color(t.border).bg(t.background)
+          .font_family(settings().font_family).text_size(12).whitespace_normal().children(m.index.text.split("\n").map((l) => div().child(l || " "))))
+        .child(h_flex().gap(8).items_center().child(div().flex_1().min_w(0).child(msgLine))
+          .child(div().text_size(11.5).text_color(t.dim).child("Fixed from the warnings above; edit notes, not this file")));
+    } else if (note) {
+      const dirty = this.memDirty(), del = this.memConfirm === `delete:${note.file}`;
+      side = v_flex().flex_1().min_w(0).min_h(0).gap(8)
+        .child(h_flex().gap(8).items_center()
+          .child(div().flex_1().min_w(0).font_semibold().truncate().child(note.file))
+          .child(div().text_size(11.5).text_color(t.dim).child(`${note.type} · ${agoSec(note.mtime)}`)))
+        .child(editor)
+        .child(h_flex().gap(8).items_center()
+          .child(div().flex_1().min_w(0).child(del ? div().text_size(12).text_color(t.blocked).child("Delete this note and its index line? Click Delete again.")
+            : msg ? msgLine : div().text_size(12).text_color(t.muted).child(dirty ? "Unsaved changes" : "")))
+          .when(this.memStale, (el) => el.child(sm("mem-take", "Load disk version", (_e, cx) => this.memReload(cx))))
+          .child(sm("mem-del", del ? "Delete — confirm" : "Delete", (_e, cx) => this.memDelete(note.file, cx), "danger"))
+          .child(sm("mem-revert", "Revert", (_e, cx) => this.memReload(cx), "secondary", { disabled: !dirty }))
+          .child(sm("mem-save", "Save", (_e, cx) => this.memSave(cx), "primary", { disabled: !dirty })));
+    } else {
+      side = v_flex().flex_1().min_w(0).gap(6).p(16).items_center().justify_center()
+        .child(div().text_color(t.muted).child(m.notes.length ? "Pick a note to read or edit it." : ""))
+        .when(Boolean(msg), (el) => el.child(msgLine));
+    }
+    return v_flex().flex_1().min_h(0).gap(12)
+      .child(head)
+      .when(!!problems, (el) => el.child(problems))
+      .child(h_flex().flex_1().min_h(0).gap(14).items_start().child(list.h_full()).child(side.h_full()));
+  }
+
+  // Show a section of the second sidebar (same loads as the old tab chips; unsaved Memory edits guarded).
+  selectSection(k, cx) {
+    this.memGuard(`tab:${k}`, (cx) => {
+      this.tab = k;
+      if (k === "skills") this.refreshSkills(cx);
+      if (k === "index") this.loadIndex(cx);
+      if (k === "memory") this.loadMem(cx, true);
+      cx.notify();
+    }, cx);
+  }
+
   // The + menu asks for this tab with shared "project-settings.tab" = { tab, folder, at }.
   openRequest(cx) {
     const req = shared("project-settings.tab");
@@ -475,6 +734,7 @@ export default class ProjectSettings extends View {
   render(cx) {
     this.openRequest(cx);
     if (this.tab === "index" && this.sel && this.cgFor !== this.sel.main) this.loadIndex(cx);
+    if (this.tab === "memory" && this.sel && this.memFor !== this.memDir()) this.loadMem(cx);
     const t = theme();
     const dirty = this.sel && this.editor.value() !== (this.saved ?? TEMPLATE);
     const btn = (id, label, fn, primary) => button(id, label, fn, { primary });
@@ -491,21 +751,28 @@ export default class ProjectSettings extends View {
           .children(this.repos.map((r) => div().id(`pr-${r.main}`).px(10).h(30).flex().items_center().rounded(7).truncate().cursor_pointer()
             .when(this.sel?.main === r.main, (el) => el.bg(t.selected))
             .hover((s) => s.bg(t.hover))
-            .on_click((_e, cx) => cx.spawn(async (cx) => { await this.pick(r); cx.notify(); }))
+            .on_click((_e, cx) => this.memGuard(`pick:${r.main}`, (cx) => cx.spawn(async (cx) => { await this.pick(r); cx.notify(); }), cx))
             .child(r.name)))))
+      // Second sidebar (spec 030): the selected project's sections.
+      .when(Boolean(this.sel), (el) => el.child(v_flex().w(200).flex_none().h_full().bg(t.chrome).border_r(1).border_color(t.border)
+        .child(v_flex().px(14).pt(12).pb(10).gap(2).flex_none()
+          .child(div().text_size(15).font_semibold().truncate().child(this.sel.name))
+          .child(div().text_size(11).text_color(t.dim).truncate().child(this.sel.main.replace(home(), "~"))))
+        .child(v_flex().id("pset-sections").flex_1().min_h(0).overflow_y_scrollbar().px(8).pb(8).gap(2)
+          .children(SECTIONS.map(([k, label, hint]) => v_flex().id(`sec-${k}`).px(10).py(6).rounded(7).cursor_pointer()
+            .when(this.tab === k, (el) => el.bg(t.selected))
+            .hover((s) => s.bg(t.hover))
+            .on_click((_e, cx) => this.selectSection(k, cx))
+            .child(div().truncate().when(this.tab === k, (el) => el.font_semibold()).child(label))
+            .child(div().text_size(11).text_color(t.dim).truncate().child(hint)))))))
       .child(v_flex().flex_1().min_w(0).h_full().min_h(0).p(20).gap(14)
         .when(!this.sel, (el) => el.child(div().text_color(t.muted).child("Open a git project to configure it.")))
         .when(Boolean(this.sel), (el) => el
-          .child(v_flex().gap(4)
-            .child(div().text_size(18).font_semibold().child(this.sel.name))
-            .child(div().text_size(11.5).text_color(t.dim).truncate().child(this.sel.main.replace(home(), "~"))))
-          .child(h_flex().gap(4)
-            .children([["ports", "Ports"], ["script", "Worktree script"], ["prompt", "Summary prompt"], ["skills", "Skills"], ["index", "Index"]].map(([k, label]) => kitBtn(`tab-${k}`, { kind: "chip", size: "md", label, on: this.tab === k,
-              action: (_e, cx) => { this.tab = k; if (k === "skills") this.refreshSkills(cx); if (k === "index") this.loadIndex(cx); cx.notify(); } }))))
           .when(this.tab === "ports", (x) => x.child(this.portsView(t)))
           .when(this.tab === "prompt", (x) => x.child(this.promptView(t, btn)))
           .when(this.tab === "skills", (x) => x.child(this.skillsView(t, btn)))
           .when(this.tab === "index", (x) => x.child(this.indexView(t)))
+          .when(this.tab === "memory", (x) => x.child(this.memoryView(t)))
           .when(this.tab === "script", (x) => x
           .child(v_flex().gap(4)
             .child(div().font_semibold().child("Worktree script"))

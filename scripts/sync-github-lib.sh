@@ -49,3 +49,5 @@ sync lib/project-skills.js mods/project-settings/project-skills.js mods/my-new-m
 sync lib/ports.js mods/project-settings/ports.js
 # Codebase index state, local git exclude entry and codegraph runs (Project Settings › Index; spec 026).
 sync lib/codegraph.js mods/project-settings/codegraph.js
+# Claude auto-memory of a project: notes, MEMORY.md index fixes (Project Settings › Memory; spec 029).
+sync lib/claude-memory.js mods/project-settings/claude-memory.js
