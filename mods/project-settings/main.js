@@ -74,6 +74,17 @@ async function loadPorts(r) {
   return trees;
 }
 
+// Folders and files open in Zed (several paths: one window, e.g. a skill folder + its SKILL.md);
+// Finder only when Zed is not there.
+const openInZed = async (...paths) => {
+  const r = await exec("zed", paths).catch(() => null);
+  if (r?.code === 0) return;
+  const o = await exec("open", ["-a", "Zed", ...paths]).catch(() => null);
+  if (o?.code !== 0) exec("open", [paths[0]]);
+};
+// A library row in Zed (spec 036): a skill's folder with its SKILL.md open; an MCP server's config file.
+const openItem = (kind, x) => kind === "mcp" || x.invalid === "no SKILL.md" ? openInZed(x.path) : openInZed(x.path, `${x.path}/SKILL.md`);
+
 export default class ProjectSettings extends View {
   // Opened as a dialog (mod.open): shared "project-settings.dialog" holds the overlay id while open.
   async close() {
@@ -313,7 +324,6 @@ export default class ProjectSettings extends View {
 
   sourcesView(t, btn) {
     const sources = this.lib?.sources ?? [];
-    const open = (abs) => exec("code", [abs]).then((r) => { if (r.code !== 0) exec("open", [abs]); }).catch(() => exec("open", [abs]));
     return v_flex().gap(2).p(6).rounded(8).border(1).border_color(t.border)
       .child(div().px(4).pb(2).text_size(11).text_color(t.dim).child(`SOURCES OF THIS PROJECT (${sources.length}) · first one wins a name`))
       .children(sources.map((s, i) => h_flex().id(`src-${i}`).gap(8).items_center().px(4).py(3).rounded(6).hover((st) => st.bg(t.hover))
@@ -321,7 +331,7 @@ export default class ProjectSettings extends View {
         .child(div().flex_1().min_w(0).truncate().text_color(t.foreground).child(s.path))
         .child(div().flex_none().text_size(11.5).text_color(s.missing ? t.blocked : t.muted)
           .child(s.missing ? "missing" : `${s.count} skill${s.count === 1 ? "" : "s"}${s.own ? " · Herdr" : ""}`))
-        .when(!s.missing, (el) => el.child(btn(`src-open-${i}`, "Open", () => open(s.abs))))
+        .when(!s.missing, (el) => el.child(btn(`src-open-${i}`, "Open", () => openInZed(s.abs))))
         .when(!s.own, (el) => el.child(btn(`src-rm-${i}`, "Remove", (_e, cx) => this.editSource("remove", s.path, cx))))))
       .child(h_flex().gap(8).items_center().pt(4)
         .child(Input.new(this.srcPath).flex_1().h(28).px(10).items_center().rounded(6).border(1).border_color(t.border).bg(t.background).text_color(t.foreground))
@@ -341,6 +351,7 @@ export default class ProjectSettings extends View {
     const toggle = (id, on, fn) => div().id(id).w(30).h(17).flex_none().rounded(9).p(2).flex().cursor_pointer()
       .when(on, (el) => el.justify_end().bg(t.solid)).when(!on, (el) => el.bg(t.raised).border(1).border_color(t.dim))
       .on_click(fn).child(div().size(on ? 13 : 11).rounded(7).bg(on ? t.solid_foreground : t.dim));
+    const open = (id, kind, x) => kitBtn(`sk-open-${id}`, { kind: "ghost", size: "sm", label: "Open", tip: kind === "mcp" ? "Open the config in Zed" : "Open in Zed", action: () => openItem(kind, x) });
     const row = (kind, x) => {
       const on = this.sk[kind].includes(x.name);
       const note = x.hiddenBy ? `hidden by ${x.hiddenBy}` : x.invalid ? `invalid: ${x.invalid}` : x.globalDuplicate ? "also in global — loaded twice if on" : "";
@@ -353,6 +364,7 @@ export default class ProjectSettings extends View {
             .when(many && Boolean(x.source), (el) => el.child(div().flex_none().text_size(11).text_color(t.dim).child(x.source))))
           .when(Boolean(x.description), (el) => el.child(div().text_size(11.5).text_color(t.muted).truncate().child(x.description)))
           .when(Boolean(note), (el) => el.child(div().text_size(11.5).text_color(x.invalid ? t.blocked : t.attention ?? t.muted).child(note))))
+        .child(open(`${kind}-${x.hiddenBy ? "hidden-" : ""}${x.name}`, kind, x))
         .when(!off, (el) => el.child(toggle(`sw-${kind}-${x.name}`, on, (_e, cx) => this.toggleSkill(kind, x.name, cx))));
     };
     const section = (title, items, body) => v_flex().gap(2)
@@ -379,7 +391,9 @@ export default class ProjectSettings extends View {
         .when(hidden.length > 0, (el) => el.child(section("HIDDEN · same name in an earlier source", hidden, (x) => row("skills", x))))
         .when(mcp.length > 0, (el) => el.child(section("MCP SERVERS", mcp, (x) => row("mcp", x))))
         .when(global.length > 0, (el) => el.child(section("GLOBAL · read-only, loaded everywhere (plus installed plugins)", global, (x) =>
-          v_flex().px(10).py(5).child(div().text_color(t.muted).truncate().child(x.name)).child(div().text_size(11.5).text_color(t.dim).truncate().child(x.description))))));
+          h_flex().id(`sk-global-${x.name}`).gap(10).items_center().px(10).py(5).rounded(7).hover((s) => s.bg(t.hover))
+            .child(v_flex().flex_1().min_w(0).child(div().text_color(t.muted).truncate().child(x.name)).child(div().text_size(11.5).text_color(t.dim).truncate().child(x.description)))
+            .child(open(`global-${x.name}`, "skills", x))))));
   }
 
   // Codebase index state of the selected project (codegraph status + git exclude).
@@ -597,7 +611,7 @@ export default class ProjectSettings extends View {
         .child(div().text_color(t.muted).whitespace_normal().child("Notes Claude keeps about this project (worktrees share them). MEMORY.md is the index Claude loads each session: a note it does not link is never recalled."))
         .child(div().text_size(11.5).text_color(t.dim).truncate().child(dir.replace(home(), "~"))))
       .child(sm("mem-new", "New note", (_e, cx) => this.memStartNew(cx), "primary"))
-      .when(!!m?.exists, (el) => el.child(sm("mem-folder", "Open folder", () => exec("open", [dir]))))
+      .when(!!m?.exists, (el) => el.child(sm("mem-folder", "Open folder", () => openInZed(dir))))
       .child(kitBtn("mem-reload", { kind: "icon", size: "sm", icon: "refresh", tip: "Reload", action: (_e, cx) => this.loadMem(cx, true) }));
     const msg = this.memErr ? `Failed: ${this.memErr}` : this.memMsg;
     const msgLine = div().text_size(12).truncate().text_color(msg.startsWith("Failed") ? t.blocked : t.muted).child(msg);

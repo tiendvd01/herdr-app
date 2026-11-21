@@ -63,7 +63,9 @@ function telling(raw, live, program) {
 export function isChosen(tab, all, titles, l = lead(tab, all)) {
   if (!tab.named || !norm(tab.name)) return false;
   const prog = l?.program;
+  // The Threads panel's New thread names its tab "Claude": the program's key, not its name.
   if (prog?.name != null && tab.name === prog.name) return false;
+  if (prog?.key && norm(tab.name).toLowerCase() === prog.key.toLowerCase()) return false;
   const name = norm(tab.name);
   const seen = [...(titles?.all ?? []), titles?.first, clean(l?.title)];
   return !seen.some(s => s && (norm(s) === name || norm(norm(s).slice(0, 28)) === name));

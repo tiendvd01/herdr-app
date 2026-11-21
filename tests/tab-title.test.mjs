@@ -80,3 +80,13 @@ test("after /clear the terminal keeps its old titles, so a tab named after them 
   assert.equal(tabTitle({ id: "t1", name: "Thread Claude theo từng spac", named: true }, [pane({ title: "" })], m), "Tên session");
   assert.equal(mergeTitles(undefined, next), next);
 });
+
+test("tab the + menu named after the agent (\"Claude\") shows the session title", () => {
+  const titles = { custom: "", ai: "Issue #1402", first: "", all: ["Issue #1402"] };
+  assert.equal(tabTitle({ id: "t1", name: "Claude", named: true }, [pane({ title: "Issue #1402" })], titles), "Issue #1402");
+});
+
+test("tab named \"Claude\" (Threads' New thread) shows the session title", () => {
+  const titles = { custom: "", ai: "Issue #1402", first: "", all: ["Issue #1402"] };
+  assert.equal(tabTitle({ id: "t1", name: "Claude", named: true }, [pane({ title: "Issue #1402" })], titles), "Issue #1402");
+});
