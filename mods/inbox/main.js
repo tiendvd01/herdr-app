@@ -1,15 +1,18 @@
-// Inbox: one list of what wants you. Agents that need you or finished, and your open PRs that got a
-// review, new comments, a red CI or a conflict. Each entry goes where it's about: an agent to its
-// pane, a PR to Pull requests (pr-flow) open on that PR. One entry per agent and per PR, updated in place.
-// Reads GitHub only; the PR code (gh, status) is pr-flow's.
-import { View, div, svg, image } from "gpui-kit";
+// Inbox (spec 037): news on your open PRs only (a review, new comments, a red CI or a conflict), one
+// entry per PR, updated in place. Two copies of this mod: a floating button over the terminal area
+// (layout `floating`, the only copy that polls and posts toasts) and the dialog it opens with
+// mod.open (props().overlay set), which draws the list. Each copy has its own localStorage, so the
+// entries live in shared("inbox.items"); shared("inbox.dialog") is the dialog's overlay id while open.
+// Clicking an entry asks the floating copy (shared "inbox.goto" + command) to open Pull requests
+// (pr-flow) on that PR, since the dialog's own tasks end when it closes.
+import { View, div, svg } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { agents, spaces, run, theme, exec, notify, shared, setShared, nextCommand, layout } from "herdr";
+import { spaces, run, theme, exec, notify, shared, setShared, nextCommand, props, closeOverlay } from "herdr";
 import { createGh, parsePrUrl } from "./gh.js";
 import { ciSummary } from "./status.js";
 import { repoFromRemote, githubHostChecker } from "./github.js";
 import { spaceFolder } from "./space-folder.js";
-import { btn, iconButton } from "./panel-ui.js";
+import { btn, iconButton, dialogFrame } from "./panel-ui.js";
 
 const MOD = "inbox";
 const PR_POLL_MS = 120_000; // each open PR, at most this often
@@ -20,15 +23,9 @@ const CI_SETTINGS = { ciWaitMs: 120_000, aiChecks: [] };
 
 const icon = (name, size, color) => svg(`mods/${MOD}/${name}.svg`).size(size).flex_none().text_color(color);
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k) ?? "") ?? d; } catch { return d; } };
-const clean = (s) => String(s ?? "").replace(/^[^\p{L}\p{N}#]+/u, "").trim();
-
-function find(node, id) {
-  if (node?.id === id) return node;
-  for (const c of node?.children ?? []) { const f = find(c, id); if (f) return f; }
-  return null;
-}
-const narrow = () => (find(layout(), "sidebar")?.size?.px ?? Infinity) < 160;
-
+// PR entries only: agent entries from before spec 037 are dropped.
+const prOnly = (list) => (Array.isArray(list) ? list : []).filter((x) => x?.kind === "pr");
+const countText = (n) => (n > 99 ? "99+" : String(n));
 function ago(ms) {
   const m = Math.floor(ms / 60000);
   if (m < 1) return "now";
@@ -70,11 +67,17 @@ const toneColor = (t, tone) => (tone === "ok" ? t.ansi2 ?? t.done : t[{ bad: "bl
 
 export default class Inbox extends View {
   init(_props, cx) {
-    this.items = load("items", []);
+    this.dialog = props()?.overlay ?? null;
     this.showDone = false;
-    this.prSnap = load("prs", {}); // url -> snapshot (see snapshot())
-    this.prev = null; // address -> status, from the last render
     this.hovered = null;
+    if (this.dialog) {
+      setShared("inbox.dialog", this.dialog);
+      return;
+    }
+    // The floating copy: seeds the shared list once (from an older copy's storage), then polls.
+    if (shared("inbox.items") == null) setShared("inbox.items", prOnly(load("items", [])));
+    else if (shared("inbox.items").some((x) => x?.kind !== "pr")) setShared("inbox.items", prOnly(shared("inbox.items")));
+    this.prSnap = load("prs", {}); // url -> snapshot (see snapshot())
     this.gh = createGh(exec);
     this.isGithubHost = githubHostChecker(exec);
     this.repos = new Map(); // machine:folder -> repo or null
@@ -85,22 +88,36 @@ export default class Inbox extends View {
     this.busy = false;
     this.pollPrs(cx);
     cx.timer.every(30_000, (cx) => this.pollPrs(cx));
-    cx.timer.every(60_000, (cx) => cx.notify()); // "5m" moves on
-    // "inbox.open-latest" (the PR toast's click), "inbox.done-all", for keys.json too.
+    // "inbox.open-latest" (the PR toast's click), "inbox.done-all" (keys.json), "inbox.goto" (the dialog's row click).
     cx.spawn(async (cx) => {
       for (;;) {
         const c = await nextCommand();
-        if (c === "open-latest") { const it = this.items.find((x) => !x.done); if (it) this.open(it, cx); }
+        if (c === "open-latest") { const it = this.pull().find((x) => !x.done); if (it) this.open(it, cx); }
         else if (c === "done-all") this.doneAll();
+        else if (c === "goto") {
+          const g = shared("inbox.goto");
+          const it = g && Date.now() - g.at < 10_000 ? this.pull().find((x) => x.key === g.key) : null;
+          if (it) this.open(it, cx);
+        }
         cx.notify();
       }
     });
   }
 
+  close() {
+    if (this.dialog && shared("inbox.dialog") === this.dialog) setShared("inbox.dialog", null);
+  }
+
+  // The shared list, as a private copy to change and save().
+  pull() {
+    this.items = JSON.parse(JSON.stringify(prOnly(shared("inbox.items"))));
+    return this.items;
+  }
+
   save() {
     const now = Date.now();
     this.items = this.items.filter((x) => !x.done || now - x.at < DONE_KEEP_MS).slice(0, KEEP);
-    localStorage.setItem("items", JSON.stringify(this.items));
+    setShared("inbox.items", this.items);
   }
 
   // One entry per key: a new event rewrites it, unread again, on top.
@@ -121,50 +138,17 @@ export default class Inbox extends View {
     return this.patch(key, { done: true, read: true });
   }
 
-  remove(key) {
-    const before = this.items.length;
-    this.items = this.items.filter((x) => x.key !== key);
-    return this.items.length !== before;
+  // Changes on the shared list: pull, change, save, all in one go so the other copy's writes survive.
+  edit(fn) {
+    this.pull();
+    if (fn() !== false) this.save();
   }
 
   doneAll() {
-    for (const it of this.items) Object.assign(it, { done: true, read: true });
-    this.save();
+    this.edit(() => { for (const it of this.items) Object.assign(it, { done: true, read: true }); });
   }
 
-  clearDone() {
-    this.items = this.items.filter((x) => !x.done);
-    this.save();
-  }
-
-  // ---------- agents: from agents() on each render; no fetching, so no cx.notify ----------
-  trackAgents(list) {
-    const first = this.prev === null;
-    const prev = this.prev ?? {};
-    this.prev = Object.fromEntries(list.map((a) => [a.address, a.status]));
-    let dirty = false;
-    for (const a of list) {
-      const key = `agent:${a.address}`;
-      const was = prev[a.address];
-      const name = clean(a.title) && clean(a.title) !== a.program?.name ? clean(a.title) : a.tab_name;
-      const where = [a.space_name, a.program?.name].filter(Boolean).join(" · ");
-      const target = { kind: "agent", address: a.address, pane: a.pane };
-      const pic = a.program?.icon ? { icon: a.program.icon, tint: a.program.tint } : null;
-      if (!first && a.status === "blocked" && was !== "blocked") {
-        this.upsert(key, { kind: "attention", title: name, body: `Needs you · ${where}`, tone: "bad", pic, target });
-        dirty = true;
-      } else if (!first && was !== undefined && a.status === "done" && was !== "done") {
-        this.upsert(key, { kind: "done", title: name, body: `Finished · ${where}`, tone: "ok", pic, target });
-        dirty = true;
-      }
-      // Looking at it reads it; it going back to work settles a "needs you".
-      if (a.focused) dirty = this.patch(key, { read: true }) || dirty;
-      if (a.status === "working" && this.items.find((x) => x.key === key)?.kind === "attention") dirty = this.markDone(key) || dirty;
-    }
-    if (dirty) this.save();
-  }
-
-  // ---------- PRs: your open PRs, polled in the background ----------
+  // ---------- PRs: your open PRs, polled in the background (floating copy only) ----------
   snapshot(pr, threads, headSeenAt) {
     const reviews = {};
     for (const r of pr.latestReviews ?? []) if (r.author?.login) reviews[r.author.login] = `${r.state}@${r.submittedAt}`;
@@ -182,7 +166,8 @@ export default class Inbox extends View {
     if (this.busy) return;
     this.busy = true;
     cx.spawn(async (cx) => {
-      let changed = false;
+      const looks = []; // [url, pr, extra], applied to the shared list in one go at the end
+      let gone = [];
       try {
         if (!this.me) this.me = await this.gh.me().catch(() => null);
         if (Date.now() - this.listedAt >= LIST_MS) {
@@ -203,21 +188,23 @@ export default class Inbox extends View {
             for (const p of prs) {
               this.fetchedAt[p.url] = Date.now();
               const r = got.get(Number(p.number));
-              if (r?.pr && this.takePr(p.url, r.pr, r)) changed = true;
+              if (r?.pr) looks.push([p.url, r.pr, r]);
             }
           }));
         }
         // Gone from your open list: merged or closed. Its entry is done, its snapshot dropped.
-        for (const url of Object.keys(this.prSnap)) {
-          if (this.urls.includes(url) || this.listedAt < 0) continue;
-          delete this.prSnap[url];
-          changed = this.markDone(`pr:${url}`) || changed;
-        }
-        localStorage.setItem("prs", JSON.stringify(this.prSnap));
+        if (this.listedAt >= 0) gone = Object.keys(this.prSnap).filter((url) => !this.urls.includes(url));
       } finally {
         this.busy = false;
       }
-      if (changed) { this.save(); cx.notify(); }
+      let changed = false;
+      this.edit(() => {
+        for (const [url, pr, extra] of looks) changed = this.takePr(url, pr, extra) || changed;
+        for (const url of gone) { delete this.prSnap[url]; changed = this.markDone(`pr:${url}`) || changed; }
+        return changed;
+      });
+      localStorage.setItem("prs", JSON.stringify(this.prSnap));
+      if (changed) cx.notify();
     });
   }
 
@@ -240,7 +227,7 @@ export default class Inbox extends View {
     return true;
   }
 
-  // ---------- going there ----------
+  // ---------- going there (floating copy) ----------
   async repoOf(space) {
     const folder = spaceFolder(space);
     if (!folder) return null;
@@ -253,14 +240,8 @@ export default class Inbox extends View {
   }
 
   open(it, cx) {
-    this.patch(it.key, { read: true });
-    this.save();
+    this.edit(() => this.patch(it.key, { read: true }));
     const t = it.target;
-    if (t?.kind === "agent") {
-      if (agents().some((a) => a.address === t.address)) run("agent.focus", { terminal: t.address });
-      else notify({ title: "That agent has closed", body: it.title, level: "info", timeout: 3000 });
-      return;
-    }
     if (t?.kind !== "pr") return;
     cx.spawn(async (cx) => {
       // The space of that repo, the shown one first; none found keeps the shown space.
@@ -282,22 +263,20 @@ export default class Inbox extends View {
     });
   }
 
+  // From the dialog: the floating copy opens it, then this dialog goes.
+  goto(it) {
+    setShared("inbox.goto", { key: it.key, at: Date.now() });
+    closeOverlay(this.dialog);
+    run("inbox.goto");
+  }
+
   // ---------- drawing ----------
-  // What it is (a PR, or the agent's own program icon), with how it stands in the corner.
+  // A PR glyph with its worst event's mark in the corner.
   mark(t, it) {
-    let base;
-    if (it.kind === "pr") base = icon("pull-request", 14, it.done ? t.dim : t.foreground);
-    else if (it.pic?.icon) base = it.pic.tint ? svg(it.pic.icon).size(14).flex_none().text_color(t.foreground) : image(it.pic.icon).w(14).h(14).flex_none();
-    else base = icon("terminal", 14, t.muted);
-    const ring = (el) => el.absolute().right(-4).bottom(-4).size(10).rounded(5).border(1.5).border_color(t.chrome).flex().items_center().justify_center();
-    let corner;
-    if (it.kind === "attention") corner = ring(div()).bg(t.blocked).text_size(7).font_bold().text_color(t.chrome).child("!");
-    else if (it.kind === "done") corner = ring(div()).bg(t.done);
-    else {
-      // Entries from before badges: guess from the tone.
-      const b = BADGE[it.badge] ?? { icon: it.tone === "ok" ? "check" : it.tone === "bad" ? "cross" : "comment", tone: it.tone };
-      corner = ring(div()).bg(toneColor(t, b.tone)).child(icon(b.icon, 6, t.chrome));
-    }
+    const base = icon("pull-request", 14, it.done ? t.dim : t.foreground);
+    const b = BADGE[it.badge] ?? { icon: it.tone === "ok" ? "check" : it.tone === "bad" ? "cross" : "comment", tone: it.tone };
+    const corner = div().absolute().right(-4).bottom(-4).size(10).rounded(5).border(1.5).border_color(t.background)
+      .flex().items_center().justify_center().bg(toneColor(t, b.tone)).child(icon(b.icon, 6, t.background));
     return div().relative().size(16).flex_none().flex().items_center().justify_center().child(base).child(corner);
   }
 
@@ -320,9 +299,9 @@ export default class Inbox extends View {
     const hovered = this.hovered === it.key;
     return h_flex()
       .id(`in-${it.key}`)
-      .px(8)
-      .py(5)
-      .gap(8)
+      .px(10)
+      .py(6)
+      .gap(10)
       .flex_none()
       .rounded(8)
       .items_start()
@@ -333,7 +312,7 @@ export default class Inbox extends View {
         else if (this.hovered === it.key) this.hovered = null;
         cx.notify();
       })
-      .on_click((_e, cx) => { this.open(it, cx); cx.notify(); })
+      .on_click(() => this.goto(it))
       .child(div().pt(1).pr(2).child(this.mark(t, it)))
       .child(v_flex().flex_1().min_w(0).gap(1)
         .child(div().truncate().text_size(12.5).when(unread, (el) => el.font_semibold()).text_color(it.done ? t.dim : unread ? t.foreground : t.muted).child(it.title || "?"))
@@ -341,22 +320,43 @@ export default class Inbox extends View {
       .child(v_flex().flex_none().items_end().gap(3)
         .child(hovered
           ? (it.done
-            ? iconButton(`rm-${it.key}`, "close", "Remove", (_e, cx) => { cx.stop_propagation(); this.remove(it.key); this.save(); this.hovered = null; cx.notify(); }, { small: true })
-            : iconButton(`mark-${it.key}`, "check", "Mark as done", (_e, cx) => { cx.stop_propagation(); this.markDone(it.key); this.save(); this.hovered = null; cx.notify(); }, { small: true }))
+            ? iconButton(`rm-${it.key}`, "close", "Remove", (_e, cx) => { cx.stop_propagation(); this.edit(() => { this.items = this.items.filter((x) => x.key !== it.key); }); this.hovered = null; cx.notify(); }, { small: true })
+            : iconButton(`mark-${it.key}`, "check", "Mark as done", (_e, cx) => { cx.stop_propagation(); this.edit(() => this.markDone(it.key)); this.hovered = null; cx.notify(); }, { small: true }))
           : div().text_size(10.5).text_color(t.dim).child(ago(now - it.at)))
         .when(unread, (el) => el.child(div().size(6).rounded(3).bg(t.accent ?? t.working))));
   }
 
-  render(cx) {
+  // The floating copy: one button, the unread count beside it. Herdr draws the frame and does the dragging.
+  renderButton(t, unread) {
+    const open = shared("inbox.dialog") != null;
+    const pill = unread > 0
+      ? div().min_w(16).h(16).px(4).rounded(8).bg(t.blocked).text_size(10).font_bold().text_color(t.background).flex().items_center().justify_center().child(countText(unread))
+      : null;
+    return h_flex().px(4).items_center()
+      .child(btn("inbox-fab", { kind: "icon", icon: `mods/${MOD}/inbox.svg`, extra: pill, on: open,
+        tip: unread ? `Inbox · ${unread} unread` : "Inbox · PR news",
+        color: unread ? t.foreground : t.dim,
+        action: () => run("mod.open", { name: MOD }) }));
+  }
+
+  render(_cx) {
     const t = theme();
-    this.trackAgents(agents());
-    const now = Date.now();
-    const live = this.items.filter((x) => !x.done);
-    const done = this.items.filter((x) => x.done);
+    const items = this.pull();
+    const live = items.filter((x) => !x.done);
     const unread = live.filter((x) => !x.read).length;
+    if (!this.dialog) return this.renderButton(t, unread);
 
-    if (narrow()) {
-      const doneHeader = h_flex().id("in-done").px(8).pt(8).h(28).flex_none().gap(6).items_center().text_size(11).font_medium().text_color(t.dim).cursor_pointer()
+    const now = Date.now();
+    const done = items.filter((x) => x.done);
+    const header = h_flex().px(16).h(48).flex_none().items_center().gap(8).border_b(1).border_color(t.border)
+      .child(icon("inbox", 15, t.muted))
+      .child(div().text_size(13.5).font_semibold().text_color(t.foreground).child("Inbox"))
+      .when(unread > 0, (el) => el.child(div().px(6).h(17).rounded(9).bg(t.blocked + "26").text_size(10.5).font_semibold().text_color(t.blocked).flex().items_center().child(countText(unread))))
+      .child(div().flex_1())
+      .when(live.length > 0, (el) => el.child(iconButton("in-readall", "check", "Mark all as done", (_e, cx) => { this.doneAll(); cx.notify(); })))
+      .child(iconButton("in-close", "close", "Close", () => closeOverlay(this.dialog)));
+
+    const doneHeader = h_flex().id("in-done").px(10).pt(8).h(30).flex_none().gap(6).items_center().text_size(11).font_medium().text_color(t.dim).cursor_pointer()
       .hover((s) => s.text_color(t.foreground))
       .on_click((_e, cx) => { this.showDone = !this.showDone; cx.notify(); })
       .child(icon(this.showDone ? "chevron-down" : "chevron-right", 11, t.dim))
@@ -364,35 +364,15 @@ export default class Inbox extends View {
       .child(div().child(String(done.length)))
       .child(div().flex_1())
       .when(this.showDone, (el) => el.child(btn("in-clear", { kind: "ghost", size: "sm", label: "Clear", tip: "Remove every done entry",
-        action: (_e, cx) => { cx.stop_propagation(); this.clearDone(); cx.notify(); } })));
+        action: (_e, cx) => { cx.stop_propagation(); this.edit(() => { this.items = this.items.filter((x) => !x.done); }); cx.notify(); } })));
 
-    return v_flex().size_full().min_h(0).bg(t.chrome).border_t(1).border_color(t.border).items_center().pt(8)
-        .child(div().relative()
-          .child(btn("inbox-rail", { kind: "icon", icon: `mods/${MOD}/inbox.svg`, tip: `Inbox · ${unread} unread`, color: unread ? t.foreground : t.dim,
-            action: (_e, cx) => { const it = live[0]; if (it) this.open(it, cx); } }))
-          .when(unread > 0, (el) => el.child(div().absolute().top(0).right(0).min_w(13).h(13).px(3).rounded(7).bg(t.blocked).text_size(9).font_bold().text_color(t.background).flex().items_center().justify_center().child(String(unread)))));
-    }
-
-    const header = h_flex().px(16).h(41).pt(14).pb(5).flex_none().items_center().gap(6)
-      .child(div().text_size(11.5).font_medium().text_color(t.dim).child("Inbox"))
-      .when(unread > 0, (el) => el.child(div().px(5).h(15).rounded(8).bg(t.blocked + "26").text_size(10).font_semibold().text_color(t.blocked).flex().items_center().child(String(unread))))
-      .child(div().flex_1())
-      .when(live.length > 0, (el) => el.child(iconButton("in-readall", "check", "Mark all as done", (_e, cx) => { this.doneAll(); cx.notify(); }, { small: true })));
-
-    const doneHeader = h_flex().id("in-done").px(8).pt(8).h(28).flex_none().gap(6).items_center().text_size(11).font_medium().text_color(t.dim).cursor_pointer()
-      .hover((s) => s.text_color(t.foreground))
-      .on_click((_e, cx) => { this.showDone = !this.showDone; cx.notify(); })
-      .child(icon(this.showDone ? "chevron-down" : "chevron-right", 11, t.dim))
-      .child(div().child("Done"))
-      .child(div().child(String(done.length)))
-      .child(div().flex_1())
-      .when(this.showDone, (el) => el.child(btn("in-clear", { kind: "ghost", size: "sm", label: "Clear", tip: "Remove every done entry",
-        action: (_e, cx) => { cx.stop_propagation(); this.clearDone(); cx.notify(); } })));
-
-    return v_flex().size_full().min_h(0).bg(t.chrome).border_t(1).border_color(t.border).text_size(13)
+    // Opened with frame "none": this is the dialog's only frame, the kit's.
+    // Esc: Herdr closes the top dialog.
+    return dialogFrame(v_flex().id("in-root").size_full()).bg(t.background).text_color(t.foreground).text_size(13)
       .child(header)
-      .when(live.length === 0, (el) => el.child(div().px(16).pb(6).text_size(12).text_color(t.dim).child("Nothing yet. Agents that need you or finish, and reviews on your PRs, show up here.")))
-      .child(v_flex().id("in-list").flex_1().min_h(0).px(8).overflow_y_scrollbar()
+      .when(live.length === 0, (el) => el.child(div().px(18).pt(14).pb(6).text_size(12).text_color(t.dim)
+        .child("No PR news yet. Reviews, comments, failed CI and conflicts on your open PRs show up here.")))
+      .child(v_flex().id("in-list").flex_1().min_h(0).p(8).overflow_y_scrollbar()
         .children(live.map((it) => this.row(t, it, now)))
         .when(done.length > 0, (el) => el.child(doneHeader))
         .when(this.showDone, (el) => el.children(done.map((it) => this.row(t, it, now)))));

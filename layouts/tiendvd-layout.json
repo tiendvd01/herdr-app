@@ -46,17 +46,6 @@
                 "weight": 1
               },
               "min": 90
-            },
-            {
-              "id": "inbox",
-              "type": "block",
-              "content": {
-                "mod": "inbox"
-              },
-              "size": {
-                "weight": 1
-              },
-              "min": 90
             }
           ]
         },
@@ -135,7 +124,17 @@
                   }
                 }
               ],
-              "active": "main"
+              "active": "main",
+              "floating": [
+                {
+                  "id": "inbox-fab",
+                  "content": {
+                    "mod": "inbox"
+                  },
+                  "edge": "bottom",
+                  "align": "end"
+                }
+              ]
             },
             {
               "id": "panel",

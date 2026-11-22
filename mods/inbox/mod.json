@@ -1,1 +1,1 @@
-{ "place": "none", "title": "Inbox" }
+{ "place": "none", "title": "Inbox", "overlay": { "kind": "dialog", "width": 560, "height": 620, "frame": "none" } }

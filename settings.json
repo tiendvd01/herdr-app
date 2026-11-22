@@ -1,17 +1,17 @@
 {
-  "zoom": 1.0,
+  "zoom": 1,
   "sounds": {
     "enabled": true
   },
   "font": "BlexMono Nerd Font",
-  "font_size": 13.0,
+  "font_size": 13,
   "font_weight": 400,
   "font_ligatures": false,
-  "terminal_line_height": 1.0,
+  "terminal_line_height": 1,
   "terminal_cell_width": 0.949999988079071,
   "terminal_scroll_speed": 0.8999999761581421,
   "ui_font": "Inter 28pt",
   "telemetry": false,
-  "minimum_contrast": 1.0,
-  "appearance": "light"
+  "minimum_contrast": 1,
+  "appearance": "dark"
 }
